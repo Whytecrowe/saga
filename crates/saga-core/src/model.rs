@@ -1,6 +1,5 @@
-use chrono::{ DateTime, NaiveDate, Utc };
+use chrono::{DateTime, NaiveDate, Utc};
 use uuid::Uuid;
-
 
 #[derive(Debug, Clone)]
 pub struct Section {
@@ -42,7 +41,7 @@ impl Echo {
     }
 
     pub fn char_count(&self) -> usize {
-         self.markdown.len()
+        self.markdown.len()
     }
 
     pub fn update_markdown(&mut self, new_markdown: String) {

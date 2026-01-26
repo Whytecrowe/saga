@@ -1,7 +1,10 @@
 [package]
-name = "Saga"
+name = "saga"
 version = "0.1.0"
 edition = "2024"
+
+[[bin]]
+name = "saga"
 
 [dependencies]
 saga-core = { path = "crates/saga-core" }

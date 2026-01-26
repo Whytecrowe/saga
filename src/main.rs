@@ -1,7 +1,6 @@
+use chrono::Local;
 use saga_core::model::Echo;
-use chrono::{ Local };
 use uuid::Uuid;
-
 
 fn main() {
     println!("<=== Test ===>");
