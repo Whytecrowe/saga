@@ -1,6 +1,6 @@
 # Saga
 
-> *The echo of your path.*
+> *Echoes of your path.*
 
 A privacy-first, offline journaling app for Android built with Rust.
 
