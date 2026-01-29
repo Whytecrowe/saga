@@ -7,4 +7,5 @@ edition = "2024"
 thiserror = "2.0"
 uuid = { version = "1.20", features = ["v4"] }
 saga-core = { path = "../saga-core" }
-rusqlite = { version = "0.38", features = ["bundled", "uuid"] }
+rusqlite = { version = "0.38", features = ["bundled"] }
+chrono = "0.4.43"

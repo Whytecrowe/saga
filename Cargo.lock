@@ -243,7 +243,6 @@ dependencies = [
  "libsqlite3-sys",
  "smallvec",
  "sqlite-wasm-rs",
- "uuid",
 ]
 
 [[package]]
@@ -273,6 +272,7 @@ dependencies = [
 name = "saga-storage-sqlite"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "rusqlite",
  "saga-core",
  "thiserror",
