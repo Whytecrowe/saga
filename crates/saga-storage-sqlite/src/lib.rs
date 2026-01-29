@@ -2,7 +2,10 @@ use thiserror::Error;
 use uuid::Uuid;
 use rusqlite::Connection;
 use std::path::Path;
-use saga_core::model::Section;
+use chrono::{Utc};
+use saga_core::model::{Echo, Section};
+use std::str::FromStr;
+
 
 #[derive(Error, Debug)]
 pub enum StorageError {
@@ -33,31 +36,33 @@ impl Storage {
     fn init_schema(&self) -> Result<()> {
         self.conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS sections (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            sort_order INTEGER NOT NULL
-        );
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                sort_order INTEGER NOT NULL
+            );
 
-        CREATE TABLE IF NOT EXISTS echoes (
-            id TEXT PRIMARY KEY,
-            day TEXT NOT NULL,
-            section_id TEXT NOT NULL,
-            markdown TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            FOREIGN KEY (section_id) REFERENCES sections(id)
-        );
+            CREATE TABLE IF NOT EXISTS echoes (
+                id TEXT PRIMARY KEY,
+                day TEXT NOT NULL,
+                section_id TEXT NOT NULL,
+                markdown TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (section_id) REFERENCES sections(id)
+            );
 
-        CREATE INDEX IF NOT EXISTS idx_echoes_day ON echoes(day);"
+            CREATE INDEX IF NOT EXISTS idx_echoes_day ON echoes(day);"
         )?;
         Ok(())
     }
 
-    pub fn create_section(&self, section: &Section) -> Result<()> {
+    // SECTIONS
+
+    pub fn save_section(&self, section: &Section) -> Result<()> {
         self.conn.execute(
             "INSERT INTO sections (id, name, sort_order) VALUES (?1, ?2, ?3)",
             rusqlite::params![
-                section.id,
+                section.id.to_string(),
                 section.name,
                 section.sort_order,
             ]
@@ -69,10 +74,10 @@ impl Storage {
     pub fn get_section(&self, section_id: &Uuid) -> Result<Option<Section>> {
         let result = self.conn.query_row(
             "SELECT id, name, sort_order FROM sections WHERE id = ?1",
-            rusqlite::params![section_id],
+            rusqlite::params![section_id.to_string()],
             |row| {
                 Ok(Section {
-                    id: row.get(0)?,
+                    id: parse_from_text(row, 0)?,
                     name: row.get(1)?,
                     sort_order: row.get(2)?,
                 })
@@ -80,7 +85,7 @@ impl Storage {
         );
 
         match result {
-            Ok(section) => Ok(Some(section)),  // Found it!
+            Ok(section) => Ok(Some(section)),  // Found it
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),  // Not found
             Err(e) => Err(StorageError::Database(e)),  // Real error
         }
@@ -95,7 +100,7 @@ impl Storage {
             [],
             |row| {
                 Ok(Section {
-                    id: row.get(0)?,
+                    id: parse_from_text(row, 0)?,
                     name: row.get(1)?,
                     sort_order: row.get(2)?,
                 })
@@ -106,6 +111,126 @@ impl Storage {
 
         Ok(sections)
     }
+
+    pub fn update_section(&self, section: &Section) -> Result<()> {
+        let rows_affected = self.conn.execute(
+            "UPDATE sections SET name =?1, sort_order = ?2 WHERE id = ?3",
+            rusqlite::params![
+                section.name.to_string(),
+                section.sort_order,
+                section.id.to_string(),
+            ],
+        )?;
+
+        if rows_affected == 0 {
+            return Err(StorageError::SectionNotFound(section.id));
+        }
+
+        Ok(())
+    }
+
+    pub fn delete_section(&self, section_id: &Uuid) -> Result<()> {
+        let rows_affected = self.conn.execute(
+            "DELETE FROM sections WHERE id = ?1",
+            rusqlite::params![section_id.to_string()],
+        )?;
+
+        if rows_affected == 0 {
+            return Err(StorageError::SectionNotFound(section_id.clone()));
+        }
+
+        Ok(())
+    }
+
+    // ECHOES
+
+    pub fn save_echo(&self, echo: &Echo) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO echoes (id, day, section_id, markdown, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![
+                echo.id.to_string(),
+                echo.day.to_string(),
+                echo.section_id.to_string(),
+                echo.markdown,
+                echo.created_at.to_rfc3339(),
+                echo.updated_at.to_rfc3339(),
+            ]
+        )?;
+
+        Ok(())
+    }
+
+    pub fn get_echo(&self, echo_id: &Uuid) -> Result<Option<Echo>> {
+        let result = self.conn.query_row(
+            "SELECT id, day, section_id, markdown, created_at, updated_at FROM echoes WHERE id = ?1",
+            rusqlite::params![echo_id.to_string()],
+            |row| {
+                Ok(Echo {
+                    id: parse_from_text(row, 0)?,
+                    day: parse_from_text(row, 1)?,
+                    section_id: parse_from_text(row, 2)?,
+                    markdown: row.get(3)?,
+                    created_at: parse_from_text(row, 4)?,
+                    updated_at: parse_from_text(row, 5)?,
+                })
+            }
+        );
+
+        match result {
+            Ok(echo) => Ok(Some(echo)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(StorageError::Database(e)),
+        }
+    }
+
+    // TODO: add get_all_echoes, but all for what? day? all time?
+
+    // TODO: add more optimal methods where only markdown is updated
+    pub fn update_echo(&self, echo: &Echo) -> Result<()> {
+        let rows_affected = self.conn.execute(
+            "UPDATE echoes SET day = ?1, section_id = ?2, markdown = ?3, updated_at = ?4 WHERE id = ?5",
+            rusqlite::params![
+                echo.day.to_string(),
+                echo.section_id.to_string(),
+                echo.markdown,
+                Utc::now().to_rfc3339(),
+                echo.id.to_string(),
+            ]
+        )?;
+
+        if rows_affected == 0 {
+            return Err(StorageError::EchoNotFound(echo.id));
+        }
+
+        Ok(())
+    }
+
+    pub fn delete_echo(&self, echo_id: &Uuid) -> Result<()> {
+        let rows_affected = self.conn.execute(
+            "DELETE FROM echoes WHERE id = ?1",
+            rusqlite::params![echo_id.to_string()],
+        )?;
+
+        if rows_affected == 0 {
+            return Err(StorageError::EchoNotFound(echo_id.clone()));
+        }
+
+        Ok(())
+    }
+}
+
+fn parse_from_text<T>(row: &rusqlite::Row, idx: usize) -> rusqlite::Result<T>
+where
+    T: FromStr,
+    T::Err: std::error::Error + Send + Sync + 'static,
+{
+    let text: String = row.get(idx)?;
+    text.parse::<T>()
+        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(
+            idx,
+            rusqlite::types::Type::Text,
+            Box::new(e),
+        ))
 }
 
 
@@ -114,9 +239,11 @@ mod tests {
     use super::*;
     use crate::Section;
     use uuid::Uuid;
+    use chrono::Local;
+
 
     #[test]
-    fn test_create_section() {
+    fn test_save_section() {
         let storage = Storage::new(":memory:")
             .expect("Memory storage creation failed!");
 
@@ -126,7 +253,7 @@ mod tests {
             sort_order: 0,
         };
 
-        storage.create_section(&section)
+        storage.save_section(&section)
             .expect("Creating Section failed!");
     }
 
@@ -141,7 +268,7 @@ mod tests {
             sort_order: 0,
         };
 
-        storage.create_section(&section)
+        storage.save_section(&section)
             .expect("Failed to create section");
 
         // Test found case
@@ -174,8 +301,8 @@ mod tests {
             sort_order: 1,
         };
 
-        storage.create_section(&section1).expect("Failed to create section 1");
-        storage.create_section(&section2).expect("Failed to create section 2");
+        storage.save_section(&section1).expect("Failed to create section 1");
+        storage.save_section(&section2).expect("Failed to create section 2");
 
         // Get all
         let sections = storage.get_all_sections()
@@ -184,5 +311,106 @@ mod tests {
         assert_eq!(sections.len(), 2);
         assert_eq!(sections[0].name, "Meditation");  // sort_order 0 comes first
         assert_eq!(sections[1].name, "Work");        // sort_order 1 comes second
+    }
+
+    #[test]
+    fn test_update_section() {
+        let storage = Storage::new(":memory:").expect("Failed to create storage");
+
+        let mut section = Section {
+            id: Uuid::new_v4(),
+            name: "Meditation".to_string(),
+            sort_order: 0,
+        };
+
+        storage.save_section(&section).expect("Failed to create");
+
+        // Update it
+        section.name = "Mindfulness".to_string();
+        section.sort_order = 5;
+        storage.update_section(&section).expect("Failed to update");
+
+        // Verify
+        let updated = storage.get_section(&section.id).expect("Query failed").unwrap();
+        assert_eq!(updated.name, "Mindfulness");
+        assert_eq!(updated.sort_order, 5);
+    }
+
+    #[test]
+    fn test_delete_section() {
+        let storage = Storage::new(":memory:").expect("Failed to create storage");
+
+        let section = Section {
+            id: Uuid::new_v4(),
+            name: "Meditation".to_string(),
+            sort_order: 0,
+        };
+
+        storage.save_section(&section).expect("Failed to create");
+        storage.delete_section(&section.id).expect("Failed to delete");
+
+        // Verify it's gone
+        let result = storage.get_section(&section.id).expect("Query failed");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_create_echo() {
+        let storage = Storage::new(":memory:").expect("Failed to create storage");
+
+        let section = Section {
+            id: Uuid::new_v4(),
+            name: "Meditation".to_string(),
+            sort_order: 0,
+        };
+
+        storage.save_section(&section)
+            .expect("Creating Section failed!");
+
+        let echo = Echo::new(
+            Local::now().date_naive(),
+            section.id,
+            "Echo texttttt".to_string(),
+        );
+
+        storage.save_echo(&echo).expect("Failed to create echo");
+
+        let found_echo = storage.get_echo(&echo.id).expect("Failed to get echo");
+        assert!(found_echo.is_some());
+
+        let found_unwrapped = found_echo.unwrap();
+        assert_eq!(found_unwrapped.id, echo.id);
+        assert_eq!(found_unwrapped.markdown, echo.markdown);
+    }
+
+    #[test]
+    fn test_update_echo() {
+        let storage = Storage::new(":memory:").expect("Failed to create storage");
+
+        let section = Section {
+            id: Uuid::new_v4(),
+            name: "Meditation".to_string(),
+            sort_order: 0,
+        };
+
+        storage.save_section(&section)
+            .expect("Creating Section failed!");
+
+        let mut echo = Echo::new(
+            Local::now().date_naive(),
+            section.id,
+            "Echo texttttt".to_string(),
+        );
+
+        storage.save_echo(&echo).expect("Failed to create echo");
+
+        echo.markdown = "New updated text!".to_string();
+
+        storage.update_echo(&echo).expect("Failed to update");
+
+        let found_echo = storage.get_echo(&echo.id).expect("Failed to get echo");
+        assert!(found_echo.is_some());
+        let found_unwrapped = found_echo.unwrap();
+        assert_eq!(found_unwrapped.markdown, echo.markdown);
     }
 }
