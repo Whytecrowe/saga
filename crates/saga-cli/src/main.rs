@@ -1,0 +1,148 @@
+use clap::{Parser, Subcommand};
+use chrono::{Local};
+use saga_storage_sqlite::Storage;
+use anyhow::Result;
+use saga_core::model::{Section, Echo};
+
+
+#[derive(Parser)]
+#[command(name = "saga")]
+#[command(about = "A privacy-first journaling app", long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Create a new section
+    Section {
+        #[command(subcommand)]
+        action: SectionAction,
+    },
+    /// Manage echoes
+    Echo {
+        #[command(subcommand)]
+        action: EchoAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum SectionAction {
+    /// Create a new section
+    #[command(name = "new")]
+    Create {
+        /// Section name
+        name: String,
+    },
+    /// List all sections
+    List,
+}
+
+#[derive(Subcommand)]
+enum EchoAction {
+    /// Create a new echo
+    #[command(name = "new")]
+    Create {
+        /// Section name
+        #[arg(short, long)]
+        section: String,
+
+        /// Echo content
+        text: String,
+    },
+    /// List today's echoes
+    Today,
+}
+
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+
+    // Open database (create if doesn't exist)
+    let db_path = dirs::home_dir()
+        .expect("Could not find home directory")
+        .join(".saga")
+        .join("saga.db");
+
+    // Create directory if it doesn't exist
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    {
+        let storage = Storage::new(&db_path)?;
+
+        match cli.command {
+            Commands::Section { action } => match action {
+                SectionAction::Create { name } => {
+                    let sort_order = storage.get_next_sort_order()?;
+                    let new_section = Section::new(name, sort_order);
+                    storage.save_section(&new_section)?;
+                    println!("Creating section: {:?}", new_section);
+                }
+                SectionAction::List => {
+                    match storage.get_all_sections() {
+                        Ok(sections) if sections.is_empty() => {
+                            println!("No sections found.");
+                        }
+                        Ok(sections) => {
+                            println!("Sections:");
+                            for section in &sections {
+                                println!("  • {} (id: {}, order: {})", section.name, section.id, section.sort_order);
+                            }
+                            println!();
+                        }
+                        Err(e) => return Err(e.into()),
+                    }
+                }
+            },
+            Commands::Echo { action } => match action {
+                EchoAction::Create { section, text } => {
+                    let sections = storage.get_all_sections()?;
+                    // Find section by name (case-insensitive)
+                    let found_section = sections.iter()
+                        .find(|s| s.name.eq_ignore_ascii_case(&section))
+                        .ok_or_else(|| anyhow::anyhow!("Section '{}' not found. Create it first with: saga section new \"{}\"", section, section))?;
+
+                    let new_echo = Echo::new(
+                        Local::now().date_naive(),
+                        found_section.id,
+                        text,
+                    );
+
+                    storage.save_echo(&new_echo)
+                        .expect("Failed to save Echo");
+
+                    println!("Created echo in section '{}': {:?}", section, new_echo);
+                }
+                EchoAction::Today => {
+                    let today = Local::now().date_naive();
+                    let echoes = storage.get_echoes_for_day(today)?;
+
+                    if echoes.is_empty() {
+                        println!("No echoes for today.");
+                        return Ok(());
+                    }
+
+                    // Get sections for lookup
+                    let sections = storage.get_all_sections()?;
+
+                    println!("\n📝 Today's Echoes ({}):\n", today.format("%B %e, %Y"));
+
+                    for echo in echoes {
+                        // Find section name
+                        let section_name = sections.iter()
+                            .find(|s| s.id == echo.section_id)
+                            .map(|s| s.name.as_str())
+                            .unwrap_or("Unknown");
+
+                        println!("[{}] {}", section_name, echo.markdown);
+                        println!("  Created: {}\n", echo.created_at.format("%l:%M %p"));
+                    }
+                }
+            },
+        }
+    }
+
+    Ok(())
+}
