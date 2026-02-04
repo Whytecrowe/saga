@@ -98,11 +98,7 @@ fn main() -> Result<()> {
             },
             Commands::Echo { action } => match action {
                 EchoAction::Create { section, text } => {
-                    let sections = storage.get_all_sections()?;
-                    // Find section by name (case-insensitive)
-                    let found_section = sections.iter()
-                        .find(|s| s.name.eq_ignore_ascii_case(&section))
-                        .ok_or_else(|| anyhow::anyhow!("Section '{}' not found. Create it first with: saga section new \"{}\"", section, section))?;
+                    let found_section = find_section_by_name(&storage, &section)?;
 
                     let new_echo = Echo::new(
                         Local::now().date_naive(),
@@ -115,6 +111,7 @@ fn main() -> Result<()> {
 
                     println!("Created echo in section '{}': {:?}", section, new_echo);
                 }
+
                 EchoAction::Today => {
                     let today = Local::now().date_naive();
                     let echoes = storage.get_echoes_for_day(today)?;
@@ -145,4 +142,15 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn find_section_by_name(storage: &Storage, section_name: &str) -> Result<Section> {
+    // Find section by name (case-insensitive)
+    storage.get_all_sections()?.into_iter()
+        .find(|s| s.name.eq_ignore_ascii_case(section_name))
+        .ok_or_else(|| anyhow::anyhow!(
+            "Section '{}' not found. Create it first with: saga section new \"{}\"",
+            section_name,
+            section_name
+        ))
 }
