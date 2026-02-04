@@ -13,6 +13,7 @@ uuid = { version = "1", features = ["v4"] }
 
 [workspace]
 members = [
+    "crates/saga-cli",
     "crates/saga-core",
     "crates/saga-storage-sqlite",
     "crates/saga-ui",
