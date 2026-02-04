@@ -1,5 +1,7 @@
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Local, NaiveDate};
 use uuid::Uuid;
+use std::fmt;
+use std::fmt::Formatter;
 
 #[derive(Debug, Clone)]
 pub struct Section {
@@ -22,13 +24,13 @@ pub struct Echo {
     pub day: NaiveDate,
     pub section_id: Uuid,
     pub markdown: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: DateTime<Local>,
+    pub updated_at: DateTime<Local>,
 }
 
 impl Echo {
     pub fn new(day: NaiveDate, section_id: Uuid, markdown: String) -> Self {
-        let now = Utc::now();
+        let now = Local::now();
 
         Self {
             id: Uuid::new_v4(),
@@ -46,7 +48,7 @@ impl Echo {
 
     pub fn update_markdown(&mut self, new_markdown: String) {
         self.markdown = new_markdown;
-        self.updated_at = Utc::now();
+        self.updated_at = Local::now();
     }
 
     // This method takes ownership and the Echo is gone after calling it
@@ -64,7 +66,48 @@ impl Echo {
 
     pub fn set_day(&mut self, new_day: NaiveDate) {
         self.day = new_day;
-        self.updated_at = Utc::now();
+        self.updated_at = Local::now();
+    }
+}
+
+// TODO: do we need any other features here? what are they? add?
+impl Section {
+    pub fn new(name: String, sort_order: i32) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            name,
+            sort_order,
+        }
+    }
+
+    pub fn rename(&mut self, new_name: String) {
+        self.name = new_name;
+    }
+}
+
+impl fmt::Display for Section {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}\n  ID: {}\n  Sort Order: {}",
+            self.name,
+            self.id,
+            self.sort_order,
+        )
+    }
+}
+
+impl fmt::Display for Echo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Echo {}\n  Day: {}\n  Section: {}\n  Created: {}\n\n{}",
+            self.id,
+            self.day,
+            self.section_id,
+            self.created_at.format("%b %e, %Y at %l:%M %p"),
+            self.markdown
+        )
     }
 }
 
