@@ -2,7 +2,7 @@ use thiserror::Error;
 use uuid::Uuid;
 use rusqlite::Connection;
 use std::path::Path;
-use chrono::{Utc};
+use chrono::{NaiveDate, Utc};
 use saga_core::model::{Echo, Section};
 use std::str::FromStr;
 
@@ -28,6 +28,10 @@ pub struct Storage {
 impl Storage {
     pub fn new<P: AsRef<Path>>(db_path: P) -> Result<Self> {
         let conn = Connection::open(db_path)?;
+
+        // Enable WAL mode - allows concurrent readers
+        conn.execute_batch("PRAGMA journal_mode=WAL;")?;
+
         let storage = Self { conn };
         storage.init_schema()?;
         Ok(storage)
@@ -142,6 +146,15 @@ impl Storage {
         Ok(())
     }
 
+    pub fn get_next_sort_order(&self) -> Result<i32> {
+        let sections = self.get_all_sections()?;
+        let max = sections.iter()
+            .map(|s| s.sort_order)
+            .max()
+            .unwrap_or(-1);  // If no sections, start at 0
+        Ok(max + 1)
+    }
+
     // ECHOES
 
     pub fn save_echo(&self, echo: &Echo) -> Result<()> {
@@ -152,8 +165,8 @@ impl Storage {
                 echo.day.to_string(),
                 echo.section_id.to_string(),
                 echo.markdown,
-                echo.created_at.to_rfc3339(),
-                echo.updated_at.to_rfc3339(),
+                echo.created_at.to_string(),
+                echo.updated_at.to_string(),
             ]
         )?;
 
@@ -182,8 +195,6 @@ impl Storage {
             Err(e) => Err(StorageError::Database(e)),
         }
     }
-
-    // TODO: add get_all_echoes, but all for what? day? all time?
 
     // TODO: add more optimal methods where only markdown is updated
     pub fn update_echo(&self, echo: &Echo) -> Result<()> {
@@ -216,6 +227,33 @@ impl Storage {
         }
 
         Ok(())
+    }
+
+    pub fn get_echoes_for_day(&self, date: NaiveDate) -> Result<Vec<Echo>> {
+        let mut res = self.conn.prepare(
+            "SELECT id, day, section_id, markdown, created_at, updated_at
+            FROM echoes
+            WHERE day = ?1
+            ORDER BY created_at"
+        )?;
+
+        let echoes = res.query_map(
+            rusqlite::params![date.to_string()],
+            |row| {
+                Ok(Echo {
+                    id: parse_from_text(row, 0)?,
+                    day: parse_from_text(row, 1)?,
+                    section_id: parse_from_text(row, 2)?,
+                    markdown: parse_from_text(row, 3)?,
+                    created_at: parse_from_text(row, 4)?,
+                    updated_at: parse_from_text(row, 5)?,
+                })
+            }
+        )?;
+
+        let echoes = echoes.collect::<rusqlite::Result<Vec<_>>>()?;
+
+        Ok(echoes)
     }
 }
 
@@ -412,5 +450,45 @@ mod tests {
         assert!(found_echo.is_some());
         let found_unwrapped = found_echo.unwrap();
         assert_eq!(found_unwrapped.markdown, echo.markdown);
+    }
+
+    #[test]
+    fn test_get_echoes_for_day() {
+        let storage = Storage::new(":memory:").expect("Failed to create storage");
+
+        // Create section
+        let section = Section {
+            id: Uuid::new_v4(),
+            name: "Meditation".to_string(),
+            sort_order: 0,
+        };
+        storage.save_section(&section).expect("Failed to create section");
+
+        // Create echoes for different days
+        let today = Local::now().date_naive();
+        let yesterday = today - chrono::Days::new(1);
+
+        let echo1 = Echo::new(today, section.id, "Today's first echo".to_string());
+        let echo2 = Echo::new(today, section.id, "Today's second echo".to_string());
+        let echo3 = Echo::new(yesterday, section.id, "Yesterday's echo".to_string());
+
+        storage.save_echo(&echo1).expect("Failed to save echo1");
+        storage.save_echo(&echo2).expect("Failed to save echo2");
+        storage.save_echo(&echo3).expect("Failed to save echo3");
+
+        // Get echoes for today
+        let today_echoes = storage.get_echoes_for_day(today)
+            .expect("Failed to get echoes for today");
+
+        assert_eq!(today_echoes.len(), 2);
+        assert!(today_echoes.iter().any(|e| e.markdown == "Today's first echo"));
+        assert!(today_echoes.iter().any(|e| e.markdown == "Today's second echo"));
+
+        // Get echoes for yesterday
+        let yesterday_echoes = storage.get_echoes_for_day(yesterday)
+            .expect("Failed to get echoes for yesterday");
+
+        assert_eq!(yesterday_echoes.len(), 1);
+        assert_eq!(yesterday_echoes[0].markdown, "Yesterday's echo");
     }
 }
