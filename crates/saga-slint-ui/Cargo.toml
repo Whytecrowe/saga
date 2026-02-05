@@ -1,0 +1,27 @@
+[package]
+name = "saga-slint-ui"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "rlib"]  # Required for Android
+
+[dependencies]
+saga-core = { path = "../saga-core" }
+saga-storage-sqlite = { path = "../saga-storage-sqlite" }
+
+# Use different features for different targets
+[target.'cfg(target_os = "android")'.dependencies]
+slint = { version = "1.15", features = ["backend-android-activity-06"] }
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+slint = { version = "1.15", features = ["backend-winit", "renderer-software"] }
+
+[dependencies.chrono]
+version = "0.4"
+
+[dependencies.uuid]
+version = "1.11"
+
+[build-dependencies]
+slint-build = "1.14"

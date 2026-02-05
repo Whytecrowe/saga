@@ -1,0 +1,24 @@
+import { VerticalBox, Button } from "std-widgets.slint";
+
+export component App inherits Window {
+    title: "Saga Journal";
+    preferred-width: 400px;
+    preferred-height: 600px;
+
+    VerticalBox {
+        Text {
+            text: "Today's Echoes";
+            font-size: 24px;
+            horizontal-alignment: center;
+        }
+
+        Button {
+            text: "Create Echo";
+        }
+
+        Text {
+            text: "No echoes yet";
+            horizontal-alignment: center;
+        }
+    }
+}
