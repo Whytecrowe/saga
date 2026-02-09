@@ -1,22 +1,8 @@
-[package]
-name = "saga"
-version = "0.1.0"
-edition = "2024"
-
-[[bin]]
-name = "saga"
-
-[dependencies]
-saga-core = { path = "crates/saga-core" }
-chrono = "0.4"
-uuid = { version = "1", features = ["v4"] }
-
 [workspace]
 members = [
     "crates/saga-cli",
     "crates/saga-core",
     "crates/saga-slint-ui",
     "crates/saga-storage-sqlite",
-    "crates/saga-ui",
 ]
 resolver = "2"

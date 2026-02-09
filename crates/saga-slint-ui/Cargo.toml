@@ -6,22 +6,25 @@ edition = "2024"
 [lib]
 crate-type = ["cdylib", "rlib"]  # Required for Android
 
+[[bin]]
+name = "saga"
+path = "src/main.rs"
+
 [dependencies]
 saga-core = { path = "../saga-core" }
 saga-storage-sqlite = { path = "../saga-storage-sqlite" }
+chrono = "0.4"
+uuid = "1.11"
+android_logger = "0.15.1"
+log = "0.4.29"
 
-# Use different features for different targets
+# Platform-specific dependencies
 [target.'cfg(target_os = "android")'.dependencies]
-slint = { version = "1.15", features = ["backend-android-activity-06"] }
+slint = { version = "1.9", default-features = false, features = ["backend-android-activity-06", "renderer-software", "compat-1-2"] }
 
-[target.'cfg(not(target_os = "android"))'.dependencies]
-slint = { version = "1.15", features = ["backend-winit", "renderer-software"] }
+[target.'cfg(target_os = "windows")'.dependencies]
+slint = { version = "1.9", default-features = false, features = ["backend-winit", "renderer-software", "compat-1-2"] }
 
-[dependencies.chrono]
-version = "0.4"
-
-[dependencies.uuid]
-version = "1.11"
 
 [build-dependencies]
-slint-build = "1.14"
+slint-build = "1.15.0"

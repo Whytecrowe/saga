@@ -1,24 +1,202 @@
-import { VerticalBox, Button } from "std-widgets.slint";
+import { Button, ScrollView, ListView, TextEdit, ComboBox, VerticalBox, HorizontalBox } from "std-widgets.slint";
+
+export struct EchoItem {
+    id: string,
+    markdown: string,
+    section-name: string,
+    day: string,
+    created-at: string,
+}
 
 export component App inherits Window {
     title: "Saga Journal";
     preferred-width: 400px;
-    preferred-height: 600px;
+    preferred-height: 700px;
+
+    // Data from Rust
+    in property <[EchoItem]> echoes: [];
+    in property <[string]> section-names: [];  // Just the names
+
+    // Callbacks to Rust
+    callback load-echoes();
+    callback create-echo-at-index(int, string);  // Index instead of ID
+    callback echo-tapped(string);
+
+    // UI state
+    property <string> current-screen: "list";
+    property <string> selected-echo-id: "";
+    property <string> new-echo-text: "";
+    property <int> selected-section-index: 0;
 
     VerticalBox {
-        Text {
-            text: "Today's Echoes";
-            font-size: 24px;
-            horizontal-alignment: center;
+        // SCREEN 1: Echo List
+        if current-screen == "list": VerticalBox {
+            padding: 16px;
+            spacing: 12px;
+
+            Text {
+                text: "Today's Echoes";
+                font-size: 24px;
+                font-weight: 700;
+            }
+
+            Button {
+                text: "Create New Echo";
+                clicked => {
+                    new-echo-text = "";
+                    selected-section-index = 0;
+                    current-screen = "create";
+                }
+            }
+
+            if echoes.length == 0: Text {
+                text: "No echoes yet. Create your first one!";
+                color: #888;
+                horizontal-alignment: center;
+            }
+
+            if echoes.length > 0: ScrollView {
+                ListView {
+                    for echo in echoes: Rectangle {
+                        height: 80px;
+                        background: #f5f5f5;
+                        border-radius: 8px;
+
+                        TouchArea {
+                            clicked => {
+                                selected-echo-id = echo.id;
+                                current-screen = "view";
+                            }
+                        }
+
+                        VerticalLayout {
+                            padding: 12px;
+                            spacing: 4px;
+
+                            Text {
+                                text: "[" + echo.section-name + "]";
+                                font-size: 12px;
+                                color: #666;
+                            }
+
+                            Text {
+                                text: echo.markdown;
+                                font-size: 14px;
+                                overflow: elide;
+                                max-height: 40px;
+                            }
+
+                            Text {
+                                text: echo.created-at;
+                                font-size: 11px;
+                                color: #888;
+                            }
+                        }
+                    }
+                }
+            }
         }
 
-        Button {
-            text: "Create Echo";
+        // SCREEN 2: Create Echo
+        if current-screen == "create": VerticalBox {
+            padding: 16px;
+            spacing: 12px;
+
+            HorizontalBox {
+                Button {
+                    text: "← Back";
+                    clicked => {
+                        current-screen = "list";
+                    }
+                }
+
+                Text {
+                    text: "New Echo";
+                    font-size: 20px;
+                    font-weight: 700;
+                    horizontal-alignment: center;
+                }
+            }
+
+            Text {
+                text: "Section:";
+                font-size: 14px;
+            }
+
+            ComboBox {
+                model: section-names;
+                current-index <=> selected-section-index;
+            }
+
+            Text {
+                text: "Content:";
+                font-size: 14px;
+            }
+
+            TextEdit {
+                text <=> new-echo-text;
+                preferred-height: 300px;
+                font-size: 14px;
+            }
+
+            Button {
+                text: "Save Echo";
+                enabled: new-echo-text != "" && section-names.length > 0;
+                clicked => {
+                    create-echo-at-index(selected-section-index, new-echo-text);
+                    current-screen = "list";
+                    load-echoes();
+                }
+            }
         }
 
-        Text {
-            text: "No echoes yet";
-            horizontal-alignment: center;
+        // SCREEN 3: View Echo
+        if current-screen == "view": VerticalBox {
+            padding: 16px;
+            spacing: 12px;
+
+            Button {
+                text: "← Back to List";
+                clicked => {
+                    current-screen = "list";
+                }
+            }
+
+            for echo in echoes: VerticalBox {
+                visible: echo.id == selected-echo-id;
+                spacing: 8px;
+
+                Text {
+                    text: "[" + echo.section-name + "]";
+                    font-size: 14px;
+                    color: #666;
+                }
+
+                Text {
+                    text: echo.day;
+                    font-size: 12px;
+                    color: #888;
+                }
+
+                Text {
+                    text: echo.created-at;
+                    font-size: 12px;
+                    color: #888;
+                }
+
+                Rectangle {
+                    height: 1px;
+                    background: #ddd;
+                }
+
+                ScrollView {
+                    Text {
+                        text: echo.markdown;
+                        font-size: 14px;
+                        wrap: word-wrap;
+                    }
+                }
+            }
         }
     }
 }
