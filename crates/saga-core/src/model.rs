@@ -23,19 +23,21 @@ pub struct Echo {
     pub id: Uuid,
     pub day: NaiveDate,
     pub section_id: Uuid,
+    pub title: String,
     pub markdown: String,
     pub created_at: DateTime<Local>,
     pub updated_at: DateTime<Local>,
 }
 
 impl Echo {
-    pub fn new(day: NaiveDate, section_id: Uuid, markdown: String) -> Self {
+    pub fn new(day: NaiveDate, section_id: Uuid, title: String, markdown: String) -> Self {
         let now = Local::now();
 
         Self {
             id: Uuid::new_v4(),
             day,
             section_id,
+            title,
             markdown,
             created_at: now,
             updated_at: now,
@@ -124,7 +126,8 @@ mod tests {
         let echo = Echo::new(
             Local::now().date_naive(),
             Uuid::new_v4(),
-            "First Echo: Hello World!".to_string(),
+            "First Echo".to_string(),
+            "Hello World!".to_string(),
         );
 
         println!("Echo created: {:#?}", echo);

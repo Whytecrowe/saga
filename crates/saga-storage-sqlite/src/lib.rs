@@ -49,6 +49,7 @@ impl Storage {
                 id TEXT PRIMARY KEY,
                 day TEXT NOT NULL,
                 section_id TEXT NOT NULL,
+                title TEXT NOT NULL,
                 markdown TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -159,11 +160,12 @@ impl Storage {
 
     pub fn save_echo(&self, echo: &Echo) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO echoes (id, day, section_id, markdown, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO echoes (id, day, section_id, title, markdown, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             rusqlite::params![
                 echo.id.to_string(),
                 echo.day.to_string(),
                 echo.section_id.to_string(),
+                echo.title,
                 echo.markdown,
                 echo.created_at.to_string(),
                 echo.updated_at.to_string(),
@@ -175,16 +177,17 @@ impl Storage {
 
     pub fn get_echo(&self, echo_id: &Uuid) -> Result<Option<Echo>> {
         let result = self.conn.query_row(
-            "SELECT id, day, section_id, markdown, created_at, updated_at FROM echoes WHERE id = ?1",
+            "SELECT id, day, section_id, title, markdown, created_at, updated_at FROM echoes WHERE id = ?1",
             rusqlite::params![echo_id.to_string()],
             |row| {
                 Ok(Echo {
                     id: parse_from_text(row, 0)?,
                     day: parse_from_text(row, 1)?,
                     section_id: parse_from_text(row, 2)?,
-                    markdown: row.get(3)?,
-                    created_at: parse_from_text(row, 4)?,
-                    updated_at: parse_from_text(row, 5)?,
+                    title: parse_from_text(row, 3)?,
+                    markdown: row.get(4)?,
+                    created_at: parse_from_text(row, 5)?,
+                    updated_at: parse_from_text(row, 6)?,
                 })
             }
         );
@@ -199,10 +202,11 @@ impl Storage {
     // TODO: add more optimal methods where only markdown is updated
     pub fn update_echo(&self, echo: &Echo) -> Result<()> {
         let rows_affected = self.conn.execute(
-            "UPDATE echoes SET day = ?1, section_id = ?2, markdown = ?3, updated_at = ?4 WHERE id = ?5",
+            "UPDATE echoes SET day = ?1, section_id = ?2, title = ?3, markdown = ?4, updated_at = ?5 WHERE id = ?6",
             rusqlite::params![
                 echo.day.to_string(),
                 echo.section_id.to_string(),
+                echo.title,
                 echo.markdown,
                 Utc::now().to_rfc3339(),
                 echo.id.to_string(),
@@ -231,7 +235,7 @@ impl Storage {
 
     pub fn get_echoes_for_day(&self, date: NaiveDate) -> Result<Vec<Echo>> {
         let mut res = self.conn.prepare(
-            "SELECT id, day, section_id, markdown, created_at, updated_at
+            "SELECT id, day, section_id, title, markdown, created_at, updated_at
             FROM echoes
             WHERE day = ?1
             ORDER BY created_at"
@@ -244,9 +248,10 @@ impl Storage {
                     id: parse_from_text(row, 0)?,
                     day: parse_from_text(row, 1)?,
                     section_id: parse_from_text(row, 2)?,
-                    markdown: parse_from_text(row, 3)?,
-                    created_at: parse_from_text(row, 4)?,
-                    updated_at: parse_from_text(row, 5)?,
+                    title: parse_from_text(row, 3)?,
+                    markdown: parse_from_text(row, 4)?,
+                    created_at: parse_from_text(row, 5)?,
+                    updated_at: parse_from_text(row, 6)?,
                 })
             }
         )?;
@@ -408,6 +413,7 @@ mod tests {
         let echo = Echo::new(
             Local::now().date_naive(),
             section.id,
+            "Echo title".to_string(),
             "Echo texttttt".to_string(),
         );
 
@@ -437,6 +443,7 @@ mod tests {
         let mut echo = Echo::new(
             Local::now().date_naive(),
             section.id,
+            "Echo title".to_string(),
             "Echo texttttt".to_string(),
         );
 
@@ -468,9 +475,9 @@ mod tests {
         let today = Local::now().date_naive();
         let yesterday = today - chrono::Days::new(1);
 
-        let echo1 = Echo::new(today, section.id, "Today's first echo".to_string());
-        let echo2 = Echo::new(today, section.id, "Today's second echo".to_string());
-        let echo3 = Echo::new(yesterday, section.id, "Yesterday's echo".to_string());
+        let echo1 = Echo::new(today, section.id, "Title 1".to_string(), "Today's first echo".to_string());
+        let echo2 = Echo::new(today, section.id, "Title 2".to_string(), "Today's second echo".to_string());
+        let echo3 = Echo::new(yesterday, section.id, "Title 3".to_string(), "Yesterday's echo".to_string());
 
         storage.save_echo(&echo1).expect("Failed to save echo1");
         storage.save_echo(&echo2).expect("Failed to save echo2");

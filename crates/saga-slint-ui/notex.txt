@@ -38,9 +38,24 @@ DEBUG FLOW:
 C:\Users\dor7a\AppData\Local\Android\Sdk\emulator\emulator.exe -avd Medium_Phone_API_36.1
 
 # All day: desktop development
-cargo run --example desktop
+cargo run
 
 # Occasionally: test on Android
 x run --device adb:emulator-5554
 OR
 x run
+
+
+ACTUAL PHONE:
+
+# Build for ARM64 (real phones)
+x build --platform android --arch arm64
+
+# Install on phone
+adb install -r D:\Development\Whytecrowe\saga\target\x\debug\android\saga-slint-ui.apk
+
+# Launch app
+adb shell monkey -p com.example.saga_slint_ui 1
+
+# LOGS
+adb logcat | Select-String -Pattern "saga|Slint|FATAL|AndroidRuntime"  

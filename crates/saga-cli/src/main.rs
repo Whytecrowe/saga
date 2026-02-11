@@ -48,6 +48,9 @@ enum EchoAction {
         #[arg(short, long)]
         section: String,
 
+        /// Echo title
+        title: String,
+
         /// Echo content
         text: String,
     },
@@ -97,12 +100,13 @@ fn main() -> Result<()> {
                 }
             },
             Commands::Echo { action } => match action {
-                EchoAction::Create { section, text } => {
+                EchoAction::Create { section, title, text } => {
                     let found_section = find_section_by_name(&storage, &section)?;
 
                     let new_echo = Echo::new(
                         Local::now().date_naive(),
                         found_section.id,
+                        title,
                         text,
                     );
 

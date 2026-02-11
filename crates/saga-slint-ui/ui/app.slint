@@ -1,7 +1,8 @@
-import { Button, ScrollView, ListView, TextEdit, ComboBox, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { Button, ScrollView, ListView, TextEdit, ComboBox, VerticalBox, HorizontalBox, LineEdit } from "std-widgets.slint";
 
 export struct EchoItem {
     id: string,
+    title: string,
     markdown: string,
     section-name: string,
     day: string,
@@ -14,19 +15,48 @@ export component App inherits Window {
     preferred-height: 700px;
 
     // Data from Rust
-    in property <[EchoItem]> echoes: [];
-    in property <[string]> section-names: [];  // Just the names
+    in property <[EchoItem]> echoes: [
+            // MOCK DATA FOR PREVIEW TODO: delete when releasing
+            {
+                id: "1",
+                title: "Echo 1",
+                markdown: "This is a sample echo for preview. It shows how the text wraps and displays in the list.",
+                section-name: "Meditation",
+                day: "2026-02-10",
+                created-at: "2:30 PM"
+            },
+            {
+                id: "2",
+                title: "Echo 2",
+                markdown: "Another echo with different text to see spacing and colors.",
+                section-name: "Work",
+                day: "2026-02-10",
+                created-at: "3:45 PM"
+            },
+            {
+                id: "3",
+                title: "Echo 3",
+                markdown: "A third one for good measure!",
+                section-name: "Fitness",
+                day: "2026-02-10",
+                created-at: "5:00 PM"
+            }
+        ];
+    in property <[string]> filtered-sections: [];
 
     // Callbacks to Rust
     callback load-echoes();
-    callback create-echo-at-index(int, string);  // Index instead of ID
+    callback create-echo(string /* section_name */, string /* title */, string /* markdown */);
     callback echo-tapped(string);
+    callback filter-sections(string);
 
     // UI state
     property <string> current-screen: "list";
-    property <string> selected-echo-id: "";
+    property <string> selected-echo-id: "1";
+    property <string> new-echo-title: "";
     property <string> new-echo-text: "";
-    property <int> selected-section-index: 0;
+    property <string> section-input: "";
+
 
     VerticalBox {
         // SCREEN 1: Echo List
@@ -44,7 +74,7 @@ export component App inherits Window {
                 text: "Create New Echo";
                 clicked => {
                     new-echo-text = "";
-                    selected-section-index = 0;
+                    section-input = "";
                     current-screen = "create";
                 }
             }
@@ -58,9 +88,11 @@ export component App inherits Window {
             if echoes.length > 0: ScrollView {
                 ListView {
                     for echo in echoes: Rectangle {
-                        height: 80px;
-                        background: #f5f5f5;
-                        border-radius: 8px;
+                        height: 100px;
+                        background: #b2b0b1;
+                        border-radius: 15px;
+                        border-width: 2px;
+                        border-color: #ddd;
 
                         TouchArea {
                             clicked => {
@@ -74,14 +106,23 @@ export component App inherits Window {
                             spacing: 4px;
 
                             Text {
-                                text: "[" + echo.section-name + "]";
+                                text: echo.section-name;
                                 font-size: 12px;
-                                color: #666;
+                                color: #933030;
+                                font-weight: 600;
+                            }
+
+                            Text {
+                                text: echo.title;
+                                font-size: 14px;
+                                font-weight: 800;
+                                color: #c43838;
                             }
 
                             Text {
                                 text: echo.markdown;
                                 font-size: 14px;
+                                color: #222;
                                 overflow: elide;
                                 max-height: 40px;
                             }
@@ -123,9 +164,58 @@ export component App inherits Window {
                 font-size: 14px;
             }
 
-            ComboBox {
-                model: section-names;
-                current-index <=> selected-section-index;
+            LineEdit {
+                text <=> section-input;
+                placeholder-text: "Type section name...";
+
+                edited => {
+                    filter-sections(self.text);
+                }
+            }
+
+            if section-input != "" && filtered-sections.length > 0: Rectangle {
+                max-height: 150px;
+                border-radius: 4px;
+                background: #f5f5f5;
+                border-width: 1px;
+                border-color: #ccc;
+
+                ScrollView {
+                    VerticalLayout {
+                        padding: 4px;
+                        spacing: 2px;
+
+                        for section in filtered-sections: Rectangle {
+                            height: 32px;
+                            background: touch.has-hover ? #e0e0e0 : transparent;
+                            border-radius: 4px;
+
+                            touch := TouchArea {
+                                clicked => {
+                                    section-input = section;
+                                    filter-sections("");
+                                }
+                            }
+
+                            Text {
+                                text: section;
+                                vertical-alignment: center;
+                                horizontal-alignment: left;
+                                padding-left: 8px;
+                            }
+                        }
+                    }
+                }
+            }
+
+            Text {
+                text: "Title:";
+                font-size: 14px;
+            }
+
+            LineEdit {
+                text <=> new-echo-title;
+                placeholder-text: "Echo Title...";
             }
 
             Text {
@@ -136,14 +226,16 @@ export component App inherits Window {
             TextEdit {
                 text <=> new-echo-text;
                 preferred-height: 300px;
-                font-size: 14px;
             }
 
             Button {
                 text: "Save Echo";
-                enabled: new-echo-text != "" && section-names.length > 0;
+                enabled: new-echo-text != "" && section-input != "" && new-echo-title != "";
                 clicked => {
-                    create-echo-at-index(selected-section-index, new-echo-text);
+                    create-echo(section-input, new-echo-title, new-echo-text);
+                    section-input = "";
+                    new-echo-text = "";
+                    new-echo-title = "";
                     current-screen = "list";
                     load-echoes();
                 }
@@ -167,21 +259,27 @@ export component App inherits Window {
                 spacing: 8px;
 
                 Text {
-                    text: "[" + echo.section-name + "]";
+                    text: echo.section-name;
                     font-size: 14px;
-                    color: #666;
+                    color: #e8a96a;
                 }
 
                 Text {
                     text: echo.day;
                     font-size: 12px;
-                    color: #888;
+                    color: #666;
+                }
+
+                Text {
+                    text: echo.title;
+                    font-size: 14px;
+                    color: #e86a6a;
                 }
 
                 Text {
                     text: echo.created-at;
                     font-size: 12px;
-                    color: #888;
+                    color: #666;
                 }
 
                 Rectangle {
@@ -190,10 +288,14 @@ export component App inherits Window {
                 }
 
                 ScrollView {
-                    Text {
-                        text: echo.markdown;
-                        font-size: 14px;
-                        wrap: word-wrap;
+                    VerticalLayout {
+                        Text {
+                            text: echo.markdown;
+                            font-size: 16px;
+                            color: #d6d6d6;
+                            wrap: word-wrap; // wrap text
+                            width: 100%;  // Force full width
+                        }
                     }
                 }
             }
