@@ -6,3 +6,7 @@ members = [
     "crates/saga-storage-sqlite",
 ]
 resolver = "2"
+
+[workspace.dependencies]
+slint = "=1.9.1"
+slint-build = "=1.9.1"
