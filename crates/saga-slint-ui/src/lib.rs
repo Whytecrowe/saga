@@ -1,10 +1,9 @@
 slint::include_modules!();
 
+use chrono::Local;
 use saga_core::model::{Echo, Section};
 use saga_storage_sqlite::Storage;
-use chrono::Local;
 use std::rc::Rc;
-
 
 pub fn run() {
     let db_path = get_database_path();
@@ -46,26 +45,19 @@ pub fn run() {
 
         ui.on_create_echo(move |section_name, title, markdown| {
             // Find or create section
-            let sections = storage.get_all_sections()
-                .expect("Failed to load sections");
+            let sections = storage.get_all_sections().expect("Failed to load sections");
 
             let section = sections
                 .iter()
                 .find(|s| s.name == section_name.as_str())
                 .cloned()
                 .unwrap_or_else(|| {
-                    let max_sort_order = sections
-                        .iter()
-                        .map(|s| s.sort_order)
-                        .max()
-                        .unwrap_or(0);
+                    let max_sort_order = sections.iter().map(|s| s.sort_order).max().unwrap_or(0);
 
                     // Section doesn't exist - create it
-                    let new_section = Section::new(
-                        section_name.to_string(),
-                        max_sort_order + 1,
-                    );
-                    storage.save_section(&new_section)
+                    let new_section = Section::new(section_name.to_string(), max_sort_order + 1);
+                    storage
+                        .save_section(&new_section)
                         .expect("Failed to save section");
                     new_section
                 });
@@ -90,37 +82,43 @@ pub fn run() {
 
 #[cfg(target_os = "android")]
 fn get_database_path() -> String {
-    use jni::objects::{JObject, JString};
     use jni::JavaVM;
+    use jni::objects::{JObject, JString};
 
     let ctx = ndk_context::android_context();
 
+    // 1. Get the Java VM and attach the current thread
     let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }.unwrap();
     let mut env = vm.attach_current_thread().unwrap();
 
-    let context = unsafe { JObject::from_raw(ctx.context().cast()) };
+    // 2. Wrap JNI calls in a local frame (size 16 is plenty for this)
+    // This ensures all JObjects created inside are cleared from memory immediately after.
+    let path_result: String = env
+        .with_local_frame(16, |env| {
+            let context = unsafe { JObject::from_raw(ctx.context().cast()) };
 
-    let files_dir = env
-        .call_method(&context, "getFilesDir", "()Ljava/io/File;", &[])
-        .expect("Failed to call getFilesDir")
-        .l()
-        .expect("getFilesDir returned null");
+            // Call context.getFilesDir() -> returns a File object
+            let files_dir = env
+                .call_method(&context, "getFilesDir", "()Ljava/io/File;", &[])
+                .map_err(|e| format!("Failed to call getFilesDir: {:?}", e))?
+                .l()?;
 
-    let path_obj = env
-        .call_method(&files_dir, "getAbsolutePath", "()Ljava/lang/String;", &[])
-        .expect("Failed to get path")
-        .l()
-        .expect("getAbsolutePath returned null");
+            // Call files_dir.getAbsolutePath() -> returns a String object
+            let path_obj = env
+                .call_method(&files_dir, "getAbsolutePath", "()Ljava/lang/String;", &[])
+                .map_err(|e| format!("Failed to get path: {:?}", e))?
+                .l()?;
 
-    // Fix: Convert to JString first, then get string
-    let jstring: JString = path_obj.into();
-    let path_string = env
-        .get_string(&jstring)
-        .expect("Failed to convert path to string");
+            // Convert the Java String object into a Rust String
+            let jstring: JString = path_obj.into();
+            let rust_str: String = env.get_string(&jstring)?.into();
 
-    let path_str: String = path_string.into();
+            Ok(rust_str)
+        })
+        .expect("Failed to retrieve Android files directory");
 
-    format!("{}/saga.db", path_str)
+    // 3. Construct the final path
+    format!("{}/saga.db", path_result)
 }
 
 #[cfg(not(target_os = "android"))]
@@ -133,42 +131,51 @@ fn load_data(ui: &App, storage: &Storage) {
 }
 
 fn filter_sections_data(ui: &App, storage: &Storage, input: String) {
-    let all_sections = storage.get_all_sections()
-        .expect("Failed to load sections");
+    if input.is_empty() {
+        ui.set_filtered_sections(Rc::new(slint::VecModel::default()).into());
+        return;
+    }
+
+    let all_sections = storage.get_all_sections().expect("Failed to load sections");
 
     // Filter sections that start with the input (case-insensitive)
     let filtered: Vec<slint::SharedString> = all_sections
         .iter()
         .map(|s| &s.name)
-        .filter(|name| {
-            name.to_lowercase().starts_with(&input.to_lowercase())
-        })
+        .filter(|name| name.to_lowercase().starts_with(&input.to_lowercase()))
         .map(|name| name.clone().into())
         .collect();
 
-    ui.set_filtered_sections(
-        Rc::new(slint::VecModel::from(filtered)).into()
-    );
+    ui.set_filtered_sections(Rc::new(slint::VecModel::from(filtered)).into());
 }
 
 fn load_echoes_data(ui: &App, storage: &Storage) {
-    let today = Local::now().date_naive();
-    let echoes = storage.get_echoes_for_day(today)
-        .expect("Failed to load echoes");
+    let echoes = storage.get_all_echoes().expect("Failed to load echoes");
 
-    let sections = storage.get_all_sections()
-        .expect("Failed to load sections");
+    let sections = storage.get_all_sections().expect("Failed to load sections");
 
-    let echo_items: Vec<EchoItem> = echoes.iter()
+    let echo_items: Vec<EchoItem> = echoes
+        .iter()
         .map(|e| {
-            let section_name = sections.iter()
+            let section_name = sections
+                .iter()
                 .find(|s| s.id == e.section_id)
                 .map(|s| s.name.clone())
                 .unwrap_or_else(|| "Unknown".to_string());
 
+            let preview_text = e
+                .markdown
+                .lines()
+                .next()
+                .unwrap_or("")
+                .chars()
+                .take(100)
+                .collect::<String>();
+
             EchoItem {
                 id: e.id.to_string().into(),
                 title: e.title.clone().into(),
+                preview: preview_text.into(),
                 markdown: e.markdown.clone().into(),
                 section_name: section_name.into(),
                 day: e.day.to_string().into(),

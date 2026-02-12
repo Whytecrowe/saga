@@ -1,11 +1,10 @@
+use chrono::{NaiveDate, Utc};
+use rusqlite::Connection;
+use saga_core::model::{Echo, Section};
+use std::path::Path;
+use std::str::FromStr;
 use thiserror::Error;
 use uuid::Uuid;
-use rusqlite::Connection;
-use std::path::Path;
-use chrono::{NaiveDate, Utc};
-use saga_core::model::{Echo, Section};
-use std::str::FromStr;
-
 
 #[derive(Error, Debug)]
 pub enum StorageError {
@@ -56,7 +55,7 @@ impl Storage {
                 FOREIGN KEY (section_id) REFERENCES sections(id)
             );
 
-            CREATE INDEX IF NOT EXISTS idx_echoes_day ON echoes(day);"
+            CREATE INDEX IF NOT EXISTS idx_echoes_day ON echoes(day);",
         )?;
         Ok(())
     }
@@ -66,11 +65,7 @@ impl Storage {
     pub fn save_section(&self, section: &Section) -> Result<()> {
         self.conn.execute(
             "INSERT INTO sections (id, name, sort_order) VALUES (?1, ?2, ?3)",
-            rusqlite::params![
-                section.id.to_string(),
-                section.name,
-                section.sort_order,
-            ]
+            rusqlite::params![section.id.to_string(), section.name, section.sort_order,],
         )?;
 
         Ok(())
@@ -86,31 +81,28 @@ impl Storage {
                     name: row.get(1)?,
                     sort_order: row.get(2)?,
                 })
-            }
+            },
         );
 
         match result {
-            Ok(section) => Ok(Some(section)),  // Found it
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),  // Not found
-            Err(e) => Err(StorageError::Database(e)),  // Real error
+            Ok(section) => Ok(Some(section)),                      // Found it
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None), // Not found
+            Err(e) => Err(StorageError::Database(e)),              // Real error
         }
     }
 
     pub fn get_all_sections(&self) -> Result<Vec<Section>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, name, sort_order FROM sections ORDER BY sort_order"
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, name, sort_order FROM sections ORDER BY sort_order")?;
 
-        let sections = stmt.query_map(
-            [],
-            |row| {
-                Ok(Section {
-                    id: parse_from_text(row, 0)?,
-                    name: row.get(1)?,
-                    sort_order: row.get(2)?,
-                })
-            }
-        )?;
+        let sections = stmt.query_map([], |row| {
+            Ok(Section {
+                id: parse_from_text(row, 0)?,
+                name: row.get(1)?,
+                sort_order: row.get(2)?,
+            })
+        })?;
 
         let sections = sections.collect::<rusqlite::Result<Vec<_>>>()?;
 
@@ -149,10 +141,7 @@ impl Storage {
 
     pub fn get_next_sort_order(&self) -> Result<i32> {
         let sections = self.get_all_sections()?;
-        let max = sections.iter()
-            .map(|s| s.sort_order)
-            .max()
-            .unwrap_or(-1);  // If no sections, start at 0
+        let max = sections.iter().map(|s| s.sort_order).max().unwrap_or(-1); // If no sections, start at 0
         Ok(max + 1)
     }
 
@@ -238,12 +227,35 @@ impl Storage {
             "SELECT id, day, section_id, title, markdown, created_at, updated_at
             FROM echoes
             WHERE day = ?1
-            ORDER BY created_at"
+            ORDER BY created_at",
         )?;
 
-        let echoes = res.query_map(
-            rusqlite::params![date.to_string()],
-            |row| {
+        let echoes = res.query_map(rusqlite::params![date.to_string()], |row| {
+            Ok(Echo {
+                id: parse_from_text(row, 0)?,
+                day: parse_from_text(row, 1)?,
+                section_id: parse_from_text(row, 2)?,
+                title: parse_from_text(row, 3)?,
+                markdown: parse_from_text(row, 4)?,
+                created_at: parse_from_text(row, 5)?,
+                updated_at: parse_from_text(row, 6)?,
+            })
+        })?;
+
+        let echoes = echoes.collect::<rusqlite::Result<Vec<_>>>()?;
+
+        Ok(echoes)
+    }
+
+    pub fn get_all_echoes(&self) -> Result<Vec<Echo>> {
+        let mut res = self.conn.prepare(
+            "SELECT id, day, section_id, title, markdown, created_at, updated_at
+            FROM echoes
+            ORDER BY day DESC, created_at DESC",
+        )?;
+
+        let echoes = res
+            .query_map([], |row| {
                 Ok(Echo {
                     id: parse_from_text(row, 0)?,
                     day: parse_from_text(row, 1)?,
@@ -253,10 +265,8 @@ impl Storage {
                     created_at: parse_from_text(row, 5)?,
                     updated_at: parse_from_text(row, 6)?,
                 })
-            }
-        )?;
-
-        let echoes = echoes.collect::<rusqlite::Result<Vec<_>>>()?;
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
 
         Ok(echoes)
     }
@@ -268,27 +278,21 @@ where
     T::Err: std::error::Error + Send + Sync + 'static,
 {
     let text: String = row.get(idx)?;
-    text.parse::<T>()
-        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(
-            idx,
-            rusqlite::types::Type::Text,
-            Box::new(e),
-        ))
+    text.parse::<T>().map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(idx, rusqlite::types::Type::Text, Box::new(e))
+    })
 }
-
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::Section;
-    use uuid::Uuid;
     use chrono::Local;
-
+    use uuid::Uuid;
 
     #[test]
     fn test_save_section() {
-        let storage = Storage::new(":memory:")
-            .expect("Memory storage creation failed!");
+        let storage = Storage::new(":memory:").expect("Memory storage creation failed!");
 
         let section = Section {
             id: Uuid::new_v4(),
@@ -296,14 +300,14 @@ mod tests {
             sort_order: 0,
         };
 
-        storage.save_section(&section)
+        storage
+            .save_section(&section)
             .expect("Creating Section failed!");
     }
 
     #[test]
     fn test_get_section() {
-        let storage = Storage::new(":memory:")
-            .expect("Failed to create storage");
+        let storage = Storage::new(":memory:").expect("Failed to create storage");
 
         let section = Section {
             id: Uuid::new_v4(),
@@ -311,25 +315,23 @@ mod tests {
             sort_order: 0,
         };
 
-        storage.save_section(&section)
+        storage
+            .save_section(&section)
             .expect("Failed to create section");
 
         // Test found case
-        let found = storage.get_section(&section.id)
-            .expect("Query failed");
+        let found = storage.get_section(&section.id).expect("Query failed");
         assert!(found.is_some());
         assert_eq!(found.unwrap().name, "Meditation");
 
         // Test not found case
-        let not_found = storage.get_section(&Uuid::new_v4())
-            .expect("Query failed");
+        let not_found = storage.get_section(&Uuid::new_v4()).expect("Query failed");
         assert!(not_found.is_none());
     }
 
     #[test]
     fn test_get_all_sections() {
-        let storage = Storage::new(":memory:")
-            .expect("Failed to create storage");
+        let storage = Storage::new(":memory:").expect("Failed to create storage");
 
         // Create multiple sections
         let section1 = Section {
@@ -344,16 +346,19 @@ mod tests {
             sort_order: 1,
         };
 
-        storage.save_section(&section1).expect("Failed to create section 1");
-        storage.save_section(&section2).expect("Failed to create section 2");
+        storage
+            .save_section(&section1)
+            .expect("Failed to create section 1");
+        storage
+            .save_section(&section2)
+            .expect("Failed to create section 2");
 
         // Get all
-        let sections = storage.get_all_sections()
-            .expect("Failed to get sections");
+        let sections = storage.get_all_sections().expect("Failed to get sections");
 
         assert_eq!(sections.len(), 2);
-        assert_eq!(sections[0].name, "Meditation");  // sort_order 0 comes first
-        assert_eq!(sections[1].name, "Work");        // sort_order 1 comes second
+        assert_eq!(sections[0].name, "Meditation"); // sort_order 0 comes first
+        assert_eq!(sections[1].name, "Work"); // sort_order 1 comes second
     }
 
     #[test]
@@ -374,7 +379,10 @@ mod tests {
         storage.update_section(&section).expect("Failed to update");
 
         // Verify
-        let updated = storage.get_section(&section.id).expect("Query failed").unwrap();
+        let updated = storage
+            .get_section(&section.id)
+            .expect("Query failed")
+            .unwrap();
         assert_eq!(updated.name, "Mindfulness");
         assert_eq!(updated.sort_order, 5);
     }
@@ -390,7 +398,9 @@ mod tests {
         };
 
         storage.save_section(&section).expect("Failed to create");
-        storage.delete_section(&section.id).expect("Failed to delete");
+        storage
+            .delete_section(&section.id)
+            .expect("Failed to delete");
 
         // Verify it's gone
         let result = storage.get_section(&section.id).expect("Query failed");
@@ -407,7 +417,8 @@ mod tests {
             sort_order: 0,
         };
 
-        storage.save_section(&section)
+        storage
+            .save_section(&section)
             .expect("Creating Section failed!");
 
         let echo = Echo::new(
@@ -437,7 +448,8 @@ mod tests {
             sort_order: 0,
         };
 
-        storage.save_section(&section)
+        storage
+            .save_section(&section)
             .expect("Creating Section failed!");
 
         let mut echo = Echo::new(
@@ -469,30 +481,57 @@ mod tests {
             name: "Meditation".to_string(),
             sort_order: 0,
         };
-        storage.save_section(&section).expect("Failed to create section");
+        storage
+            .save_section(&section)
+            .expect("Failed to create section");
 
         // Create echoes for different days
         let today = Local::now().date_naive();
         let yesterday = today - chrono::Days::new(1);
 
-        let echo1 = Echo::new(today, section.id, "Title 1".to_string(), "Today's first echo".to_string());
-        let echo2 = Echo::new(today, section.id, "Title 2".to_string(), "Today's second echo".to_string());
-        let echo3 = Echo::new(yesterday, section.id, "Title 3".to_string(), "Yesterday's echo".to_string());
+        let echo1 = Echo::new(
+            today,
+            section.id,
+            "Title 1".to_string(),
+            "Today's first echo".to_string(),
+        );
+        let echo2 = Echo::new(
+            today,
+            section.id,
+            "Title 2".to_string(),
+            "Today's second echo".to_string(),
+        );
+        let echo3 = Echo::new(
+            yesterday,
+            section.id,
+            "Title 3".to_string(),
+            "Yesterday's echo".to_string(),
+        );
 
         storage.save_echo(&echo1).expect("Failed to save echo1");
         storage.save_echo(&echo2).expect("Failed to save echo2");
         storage.save_echo(&echo3).expect("Failed to save echo3");
 
         // Get echoes for today
-        let today_echoes = storage.get_echoes_for_day(today)
+        let today_echoes = storage
+            .get_echoes_for_day(today)
             .expect("Failed to get echoes for today");
 
         assert_eq!(today_echoes.len(), 2);
-        assert!(today_echoes.iter().any(|e| e.markdown == "Today's first echo"));
-        assert!(today_echoes.iter().any(|e| e.markdown == "Today's second echo"));
+        assert!(
+            today_echoes
+                .iter()
+                .any(|e| e.markdown == "Today's first echo")
+        );
+        assert!(
+            today_echoes
+                .iter()
+                .any(|e| e.markdown == "Today's second echo")
+        );
 
         // Get echoes for yesterday
-        let yesterday_echoes = storage.get_echoes_for_day(yesterday)
+        let yesterday_echoes = storage
+            .get_echoes_for_day(yesterday)
             .expect("Failed to get echoes for yesterday");
 
         assert_eq!(yesterday_echoes.len(), 1);

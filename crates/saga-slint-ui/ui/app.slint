@@ -4,6 +4,7 @@ export struct EchoItem {
     id: string,
     title: string,
     markdown: string,
+    preview: string,
     section-name: string,
     day: string,
     created-at: string,
@@ -18,30 +19,30 @@ export component App inherits Window {
     in property <[EchoItem]> echoes: [
             // MOCK DATA FOR PREVIEW TODO: delete when releasing
             {
-                id: "1",
-                title: "Echo 1",
-                markdown: "This is a sample echo for preview. It shows how the text wraps and displays in the list.",
-                section-name: "Meditation",
-                day: "2026-02-10",
-                created-at: "2:30 PM"
-            },
-            {
-                id: "2",
-                title: "Echo 2",
-                markdown: "Another echo with different text to see spacing and colors.",
-                section-name: "Work",
-                day: "2026-02-10",
-                created-at: "3:45 PM"
-            },
-            {
-                id: "3",
-                title: "Echo 3",
-                markdown: "A third one for good measure!",
-                section-name: "Fitness",
-                day: "2026-02-10",
-                created-at: "5:00 PM"
-            }
-        ];
+            id: "1",
+            title: "Echo 1",
+            markdown: "This is a sample echo for preview. It shows how the text wraps and displays in the list.",
+            section-name: "Meditation",
+            day: "2026-02-10",
+            created-at: "2:30 PM"
+        },
+        {
+            id: "2",
+            title: "Echo 2",
+            markdown: "Another echo with different text to see spacing and colors.",
+            section-name: "Work",
+            day: "2026-02-10",
+            created-at: "3:45 PM"
+        },
+        {
+            id: "3",
+            title: "Echo 3",
+            markdown: "A third one for good measure!",
+            section-name: "Fitness",
+            day: "2026-02-10",
+            created-at: "5:00 PM"
+        }
+    ];
     in property <[string]> filtered-sections: [];
 
     // Callbacks to Rust
@@ -56,7 +57,6 @@ export component App inherits Window {
     property <string> new-echo-title: "";
     property <string> new-echo-text: "";
     property <string> section-input: "";
-
 
     VerticalBox {
         // SCREEN 1: Echo List
@@ -120,11 +120,10 @@ export component App inherits Window {
                             }
 
                             Text {
-                                text: echo.markdown;
+                                text: echo.preview;
                                 font-size: 14px;
                                 color: #222;
                                 overflow: elide;
-                                max-height: 40px;
                             }
 
                             Text {
@@ -202,6 +201,7 @@ export component App inherits Window {
                                 vertical-alignment: center;
                                 horizontal-alignment: left;
                                 padding-left: 8px;
+                                color: #280b0b;
                             }
                         }
                     }
@@ -246,6 +246,7 @@ export component App inherits Window {
         if current-screen == "view": VerticalBox {
             padding: 16px;
             spacing: 12px;
+            vertical-stretch: 1;
 
             Button {
                 text: "← Back to List";
@@ -254,47 +255,61 @@ export component App inherits Window {
                 }
             }
 
-            for echo in echoes: VerticalBox {
-                visible: echo.id == selected-echo-id;
-                spacing: 8px;
-
-                Text {
-                    text: echo.section-name;
-                    font-size: 14px;
-                    color: #e8a96a;
-                }
-
-                Text {
-                    text: echo.day;
-                    font-size: 12px;
-                    color: #666;
-                }
-
-                Text {
-                    text: echo.title;
-                    font-size: 14px;
-                    color: #e86a6a;
-                }
-
-                Text {
-                    text: echo.created-at;
-                    font-size: 12px;
-                    color: #666;
-                }
-
-                Rectangle {
-                    height: 1px;
-                    background: #ddd;
-                }
+            Rectangle {
+                vertical-stretch: 1;
+                clip: true;
+                background: #1a1a1a;
+                border-radius: 8px;
 
                 ScrollView {
-                    VerticalLayout {
-                        Text {
-                            text: echo.markdown;
-                            font-size: 16px;
-                            color: #d6d6d6;
-                            wrap: word-wrap; // wrap text
-                            width: 100%;  // Force full width
+                    viewport-height: view-content.preferred-height;
+
+                    view-content := VerticalLayout {
+                        padding: 12px;
+                        spacing: 0px;
+
+                        for echo in echoes: VerticalLayout {
+                            // only render the element if this is the one we want
+                            if echo.id == selected-echo-id: VerticalLayout {
+                                spacing: 12px;
+
+                                Text {
+                                    text: echo.section-name;
+                                    font-size: 14px;
+                                    font-weight: 600;
+                                    color: #e8a96a;
+                                }
+
+                                Text {
+                                    text: "Date: " + echo.day + " | " + echo.created-at;
+                                    font-size: 12px;
+                                    color: #888;
+                                }
+
+                                Text {
+                                    text: echo.title;
+                                    font-size: 22px;
+                                    font-weight: 800;
+                                    color: #e86a6a;
+                                }
+
+                                Rectangle {
+                                    height: 1px;
+                                    background: #333;
+                                }
+
+                                Text {
+                                    text: echo.markdown;
+                                    font-size: 16px;
+                                    color: #eee;
+                                    wrap: word-wrap;
+                                    horizontal-alignment: left;
+                                }
+
+                                Rectangle {
+                                    height: 20px;
+                                }
+                            }
                         }
                     }
                 }
