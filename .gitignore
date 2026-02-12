@@ -66,3 +66,6 @@ captures/
 # System files
 .fuse_hidden*
 .nfs*
+
+# Aux
+/concepts/
