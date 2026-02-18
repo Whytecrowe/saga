@@ -16,24 +16,19 @@ pub fn run() {
     let ui_weak = ui.as_weak();
     let storage_clone = Rc::new(storage);
 
-    // load echoes
-    {
-        let ui_weak = ui_weak.clone();
-        let storage = storage_clone.clone();
-        ui.on_load_echoes(move || {
-            if let Some(ui) = ui_weak.upgrade() {
-                load_echoes_data(&ui, &storage);
-            }
-        });
-    }
-
+    // add sections
     {
         let ui_weak = ui_weak.clone();
         let storage = storage_clone.clone();
 
-        ui.on_filter_sections(move |input_text| {
+        ui.on_add_section(move |name| {
+            let new_section = Section::new(name.to_string(), 0);
+            storage
+                .save_section(&new_section)
+                .expect("Failed to save section");
+
             if let Some(ui) = ui_weak.upgrade() {
-                filter_sections_data(&ui, &storage, input_text.to_string());
+                load_data(&ui, &storage);
             }
         });
     }
@@ -43,7 +38,12 @@ pub fn run() {
         let ui_weak = ui_weak.clone();
         let storage = storage_clone.clone();
 
-        ui.on_create_echo(move |section_name, title, markdown| {
+        ui.on_save_echo(move |echo_item| {
+            let section_name = echo_item.section_name.to_string();
+            let title = echo_item.title.to_string();
+            let markdown = echo_item.markdown.to_string();
+            let id_str = echo_item.id.to_string();
+
             // Find or create section
             let sections = storage.get_all_sections().expect("Failed to load sections");
 
@@ -62,17 +62,31 @@ pub fn run() {
                     new_section
                 });
 
-            let echo = Echo::new(
-                Local::now().date_naive(),
-                section.id,
-                title.to_string(),
-                markdown.to_string(),
-            );
+            if id_str.is_empty() {
+                // Make new Echo
+                let echo = Echo::new(
+                    Local::now().date_naive(),
+                    section.id,
+                    title.to_string(),
+                    markdown.to_string(),
+                );
 
-            storage.save_echo(&echo).expect("Failed to save echo");
+                storage.save_echo(&echo).expect("Failed to save echo");
+            } else {
+                // Update existing Echo
+                let uuid = uuid::Uuid::parse_str(&id_str).expect("Invalid UUID for Echo");
+                if let Some(mut echo) = storage.get_echo(&uuid).unwrap() {
+                    echo.title = title;
+                    echo.markdown = markdown;
+                    echo.section_id = section.id;
+                    echo.updated_at = Local::now();
+
+                    storage.update_echo(&echo).expect("Failed to update echo");
+                }
+            }
 
             if let Some(ui) = ui_weak.upgrade() {
-                load_echoes_data(&ui, &storage);
+                load_data(&ui, &storage);
             }
         });
     }
@@ -127,29 +141,16 @@ fn get_database_path() -> String {
 }
 
 fn load_data(ui: &App, storage: &Storage) {
-    load_echoes_data(ui, storage);
+    let all_sections = load_echoes_data(ui, storage);
+
+    let section_names: Vec<slint::SharedString> =
+        all_sections.iter().map(|s| s.name.clone().into()).collect();
+
+    // Update the UI
+    ui.set_sections(Rc::new(slint::VecModel::from(section_names)).into());
 }
 
-fn filter_sections_data(ui: &App, storage: &Storage, input: String) {
-    if input.is_empty() {
-        ui.set_filtered_sections(Rc::new(slint::VecModel::default()).into());
-        return;
-    }
-
-    let all_sections = storage.get_all_sections().expect("Failed to load sections");
-
-    // Filter sections that start with the input (case-insensitive)
-    let filtered: Vec<slint::SharedString> = all_sections
-        .iter()
-        .map(|s| &s.name)
-        .filter(|name| name.to_lowercase().starts_with(&input.to_lowercase()))
-        .map(|name| name.clone().into())
-        .collect();
-
-    ui.set_filtered_sections(Rc::new(slint::VecModel::from(filtered)).into());
-}
-
-fn load_echoes_data(ui: &App, storage: &Storage) {
+fn load_echoes_data(ui: &App, storage: &Storage) -> Vec<Section> {
     let echoes = storage.get_all_echoes().expect("Failed to load echoes");
 
     let sections = storage.get_all_sections().expect("Failed to load sections");
@@ -185,6 +186,8 @@ fn load_echoes_data(ui: &App, storage: &Storage) {
         .collect();
 
     ui.set_echoes(Rc::new(slint::VecModel::from(echo_items)).into());
+
+    sections
 }
 
 #[cfg(target_os = "android")]

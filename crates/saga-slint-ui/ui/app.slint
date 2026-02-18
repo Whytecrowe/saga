@@ -20,11 +20,12 @@ export component App inherits Window {
     property <int> sun-view-mode: 0;
     property <EchoItem> active-echo;
     property <int> expanded-day: -1;
-    property <[string]> sections: ["JOURNAL", "WORKOUT", "IDEAS", "TRAVEL"];
+    in-out property <[string]> sections: [];
+    in-out property <[EchoItem]> echoes: [];
 
     // Callbacks for Rust integration
     callback save-echo(EchoItem);
-    callback request-add-section(string);
+    callback add-section(string);
 
     background: screen-state == 0
         ? @linear-gradient(180deg, #2e7d32 0%, #4caf50 50%, #81c784 100%)
@@ -239,7 +240,7 @@ export component App inherits Window {
                     new_sect_in := LineEdit {
                         placeholder-text: "New Section Name...";
                     }
-                    Button { text: "Add"; clicked => { request-add-section(new_sect_in.text); add_pnl.visible = false; } }
+                    Button { text: "Add"; clicked => { add-section(new_sect_in.text); add_pnl.visible = false; } }
                 }
             }
 
