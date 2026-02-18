@@ -11,308 +11,253 @@ export struct EchoItem {
 }
 
 export component App inherits Window {
-    title: "Saga Journal";
     preferred-width: 400px;
-    preferred-height: 700px;
+    preferred-height: 800px;
 
-    // Data from Rust
-    in property <[EchoItem]> echoes: [
-            // MOCK DATA FOR PREVIEW TODO: delete when releasing
-            {
-            id: "1",
-            title: "Echo 1",
-            markdown: "This is a sample echo for preview. It shows how the text wraps and displays in the list.",
-            section-name: "Meditation",
-            day: "2026-02-10",
-            created-at: "2:30 PM"
-        },
-        {
-            id: "2",
-            title: "Echo 2",
-            markdown: "Another echo with different text to see spacing and colors.",
-            section-name: "Work",
-            day: "2026-02-10",
-            created-at: "3:45 PM"
-        },
-        {
-            id: "3",
-            title: "Echo 3",
-            markdown: "A third one for good measure!",
-            section-name: "Fitness",
-            day: "2026-02-10",
-            created-at: "5:00 PM"
-        }
-    ];
-    in property <[string]> filtered-sections: [];
+    // States: 0 = Journey (Main), 1 = Echo screen (View/Edit)
+    property <int> screen-state: 0;
+    property <bool> edit-mode: false;
+    property <int> sun-view-mode: 0;
+    property <EchoItem> active-echo;
+    property <int> expanded-day: -1;
+    property <[string]> sections: ["JOURNAL", "WORKOUT", "IDEAS", "TRAVEL"];
 
-    // Callbacks to Rust
-    callback load-echoes();
-    callback create-echo(string /* section_name */, string /* title */, string /* markdown */);
-    callback echo-tapped(string);
-    callback filter-sections(string);
+    // Callbacks for Rust integration
+    callback save-echo(EchoItem);
+    callback request-add-section(string);
 
-    // UI state
-    property <string> current-screen: "list";
-    property <string> selected-echo-id: "1";
-    property <string> new-echo-title: "";
-    property <string> new-echo-text: "";
-    property <string> section-input: "";
+    background: screen-state == 0
+        ? @linear-gradient(180deg, #2e7d32 0%, #4caf50 50%, #81c784 100%)
+        : (edit-mode ? #fff3e0 : #fffaf0);
 
-    VerticalBox {
-        // SCREEN 1: Echo List
-        if current-screen == "list": VerticalBox {
-            padding: 16px;
-            spacing: 12px;
+    // ==========================================
+    // SCREEN 0: THE PATH (MAIN SCREEN)
+    // ==========================================
+    if screen-state == 0 : Rectangle {
+        Flickable {
+            width: 100%; height: 100%;
+            viewport-height: 1800px;
 
-            Text {
-                text: "Today's Echoes";
-                font-size: 24px;
-                font-weight: 700;
+            // Meadow Texture
+            for i in 80 : Rectangle {
+                x: Math.mod(i * 197, 390) * 1px + 5px;
+                y: Math.mod(i * 283, 1750) * 1px + 300px;
+                width: 1.2px; height: 1.2px;
+                background: rgba(255, 255, 255, 0.15);
+                border-radius: 0.6px;
             }
 
-            Button {
-                text: "Create New Echo";
-                clicked => {
-                    new-echo-text = "";
-                    section-input = "";
-                    current-screen = "create";
+            // THE WINDING ROAD
+            Path {
+                width: 400px; height: 1400px; y: 300px;
+                stroke: #8d7d6f; stroke-width: 80px;
+                commands: "M 200 0 Q 300 300 200 600 T 200 1400";
+                opacity: 0.8;
+            }
+
+            // LANDMARKS
+            for i in 6 : Rectangle {
+                property <bool> is-expanded: expanded-day == i;
+                property <bool> is-left: Math.mod(i, 2) == 0;
+                x: is-left ? 60px : 270px;
+                y: i * 220px + 350px;
+                width: 70px; height: 70px;
+
+                // Date Bubble
+                Rectangle {
+                    width: 70px; height: 70px;
+                    background: is-expanded ? #ffffff : #fdfcfbaa;
+                    border-radius: 35px;
+                    border-width: 2px;
+                    border-color: #3e2723;
+                    drop-shadow-blur: 8px;
+                    drop-shadow-color: rgba(0,0,0,0.2);
+                    z: 5;
+
+                    Text {
+                        text: "FEB\n" + (17 - i);
+                        color: #3e2723;
+                        font-size: 14px;
+                        font-weight: 800;
+                        horizontal-alignment: center;
+                    }
+
+                    TouchArea { clicked => { expanded-day = (expanded-day == i) ? -1 : i; } }
                 }
-            }
 
-            if echoes.length == 0: Text {
-                text: "No echoes yet. Create your first one!";
-                color: #888;
-                horizontal-alignment: center;
-            }
+                // ADAPTIVE BUBBLES
+                if is-expanded : Rectangle {
+                    z: 10;
+                    for j in 4 : Rectangle {
+                        property <angle> base-angle: is-left ? 0deg : 180deg;
+                        property <angle> sprout-angle: base-angle + (j * 45deg) - 22.5deg;
 
-            if echoes.length > 0: ScrollView {
-                ListView {
-                    for echo in echoes: Rectangle {
-                        height: 100px;
-                        background: #b2b0b1;
-                        border-radius: 15px;
-                        border-width: 2px;
-                        border-color: #ddd;
+                        x: 35px + Math.sin(sprout-angle) * 85px - 25px;
+                        y: 35px + Math.cos(sprout-angle) * 85px - 25px;
+                        width: 50px; height: 50px;
+                        background: (j == 3) ? #e8f5e9 : #fff9c4;
+                        border-radius: 25px;
+                        border-width: 1.5px;
+                        border-color: (j == 3) ? #66bb6a : #fbc02d;
+
+                        Text {
+                            text: j == 3 ? "+" : "Echo";
+                            font-size: j == 3 ? 20px : 10px;
+                            color: #5d4037;
+                            font-weight: 800;
+                        }
 
                         TouchArea {
                             clicked => {
-                                selected-echo-id = echo.id;
-                                current-screen = "view";
-                            }
-                        }
-
-                        VerticalLayout {
-                            padding: 12px;
-                            spacing: 4px;
-
-                            Text {
-                                text: echo.section-name;
-                                font-size: 12px;
-                                color: #933030;
-                                font-weight: 600;
-                            }
-
-                            Text {
-                                text: echo.title;
-                                font-size: 14px;
-                                font-weight: 800;
-                                color: #c43838;
-                            }
-
-                            Text {
-                                text: echo.preview;
-                                font-size: 14px;
-                                color: #222;
-                                overflow: elide;
-                            }
-
-                            Text {
-                                text: echo.created-at;
-                                font-size: 11px;
-                                color: #888;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // SCREEN 2: Create Echo
-        if current-screen == "create": VerticalBox {
-            padding: 16px;
-            spacing: 12px;
-
-            HorizontalBox {
-                Button {
-                    text: "← Back";
-                    clicked => {
-                        current-screen = "list";
-                    }
-                }
-
-                Text {
-                    text: "New Echo";
-                    font-size: 20px;
-                    font-weight: 700;
-                    horizontal-alignment: center;
-                }
-            }
-
-            Text {
-                text: "Section:";
-                font-size: 14px;
-            }
-
-            LineEdit {
-                text <=> section-input;
-                placeholder-text: "Type section name...";
-
-                edited => {
-                    filter-sections(self.text);
-                }
-            }
-
-            if section-input != "" && filtered-sections.length > 0: Rectangle {
-                max-height: 150px;
-                border-radius: 4px;
-                background: #f5f5f5;
-                border-width: 1px;
-                border-color: #ccc;
-
-                ScrollView {
-                    VerticalLayout {
-                        padding: 4px;
-                        spacing: 2px;
-
-                        for section in filtered-sections: Rectangle {
-                            height: 32px;
-                            background: touch.has-hover ? #e0e0e0 : transparent;
-                            border-radius: 4px;
-
-                            touch := TouchArea {
-                                clicked => {
-                                    section-input = section;
-                                    filter-sections("");
+                                if (j == 3) {
+                                    active-echo = { id: "", title: "", markdown: "", section-name: "JOURNAL", day: "FEB " + (17 - i) };
+                                    edit-mode = true;
+                                    screen-state = 1;
+                                } else {
+                                    active-echo = { id: "mock", title: "Reflections", markdown: "The journey today felt significant...", section-name: "JOURNAL", day: "FEB " + (17 - i) };
+                                    edit-mode = false;
+                                    screen-state = 1;
                                 }
                             }
-
-                            Text {
-                                text: section;
-                                vertical-alignment: center;
-                                horizontal-alignment: left;
-                                padding-left: 8px;
-                                color: #280b0b;
-                            }
                         }
                     }
                 }
             }
-
-            Text {
-                text: "Title:";
-                font-size: 14px;
-            }
-
-            LineEdit {
-                text <=> new-echo-title;
-                placeholder-text: "Echo Title...";
-            }
-
-            Text {
-                text: "Content:";
-                font-size: 14px;
-            }
-
-            TextEdit {
-                text <=> new-echo-text;
-                preferred-height: 300px;
-            }
-
-            Button {
-                text: "Save Echo";
-                enabled: new-echo-text != "" && section-input != "" && new-echo-title != "";
-                clicked => {
-                    create-echo(section-input, new-echo-title, new-echo-text);
-                    section-input = "";
-                    new-echo-text = "";
-                    new-echo-title = "";
-                    current-screen = "list";
-                    load-echoes();
-                }
-            }
         }
 
-        // SCREEN 3: View Echo
-        if current-screen == "view": VerticalBox {
-            padding: 16px;
-            spacing: 12px;
-            vertical-stretch: 1;
-
-            Button {
-                text: "← Back to List";
-                clicked => {
-                    current-screen = "list";
-                }
-            }
+        // --- FIXED HORIZON ---
+        Rectangle {
+            y: 0; width: 100%; height: 280px;
+            background: @linear-gradient(180deg, #4facfe 0%, #00f2fe 60%, transparent 100%);
+            clip: true; z: 20;
 
             Rectangle {
-                vertical-stretch: 1;
-                clip: true;
-                background: #1a1a1a;
-                border-radius: 8px;
+                x: 320px; y: 40px; width: 60px; height: 60px;
+                background: @radial-gradient(circle, #ffd700 0%, #ff8c00 100%);
+                border-radius: 30px;
+                TouchArea { clicked => { sun-view-mode = Math.mod(sun-view-mode + 1, 3); } }
+                Text {
+                    text: (sun-view-mode == 0) ? "WEEK" : (sun-view-mode == 1) ? "MONTH" : "ALL";
+                    font-size: 10px; font-weight: 900; color: white;
+                    horizontal-alignment: center; vertical-alignment: center;
+                }
+            }
 
-                ScrollView {
-                    viewport-height: view-content.preferred-height;
+            Path { width: 400px; height: 180px; y: 100px; fill: #77889966; commands: "M 0 180 L 100 40 L 220 120 L 320 20 L 400 180 Z"; }
+            Path { width: 400px; height: 180px; y: 120px; fill: #4b5d67; commands: "M 0 180 L 140 20 L 280 180 Z"; }
+        }
 
-                    view-content := VerticalLayout {
-                        padding: 12px;
-                        spacing: 0px;
+        Text {
+            x: 0; y: 40px; width: 100%;
+            text: "S  A  G  A";
+            horizontal-alignment: center; font-size: 20px; font-weight: 900;
+            color: white; letter-spacing: 12px; opacity: 0.8; z: 25;
+        }
+    }
 
-                        for echo in echoes: VerticalLayout {
-                            // only render the element if this is the one we want
-                            if echo.id == selected-echo-id: VerticalLayout {
-                                spacing: 12px;
+    // ==========================================
+    // SCREEN 1: ECHO SCREEN (VIEW / EDIT)
+    // ==========================================
+    if screen-state == 1 : Rectangle {
+        width: 100%; height: 100%;
+        background: edit-mode ? #966516 : #9b6f28;
 
-                                Text {
-                                    text: echo.section-name;
-                                    font-size: 14px;
-                                    font-weight: 600;
-                                    color: #e8a96a;
-                                }
+        VerticalLayout {
+            padding: 24px;
+            spacing: 16px;
 
-                                Text {
-                                    text: "Date: " + echo.day + " | " + echo.created-at;
-                                    font-size: 12px;
-                                    color: #888;
-                                }
-
-                                Text {
-                                    text: echo.title;
-                                    font-size: 22px;
-                                    font-weight: 800;
-                                    color: #e86a6a;
-                                }
-
-                                Rectangle {
-                                    height: 1px;
-                                    background: #333;
-                                }
-
-                                Text {
-                                    text: echo.markdown;
-                                    font-size: 16px;
-                                    color: #eee;
-                                    wrap: word-wrap;
-                                    horizontal-alignment: left;
-                                }
-
-                                Rectangle {
-                                    height: 20px;
-                                }
-                            }
-                        }
+            // Header Row
+            HorizontalLayout {
+                VerticalLayout {
+                    spacing: 4px;
+                    Text {
+                        text: edit-mode ? "Editing Entry" : active-echo.section-name;
+                        font-size: 14px;
+                        color: #5d4037;
+                        font-weight: 900;
+                    }
+                    Text {
+                        text: active-echo.day;
+                        font-size: 16px;
+                        color: #3e2723;
+                        font-weight: 700;
                     }
                 }
+                Rectangle { horizontal-stretch: 1; }
+
+                Button {
+                    text: "Back to Road";
+                    clicked => { screen-state = 0; edit-mode = false; }
+                }
+
+                if !edit-mode : Button { text: "Edit"; clicked => { edit-mode = true; } }
+
+                if edit-mode : Button {
+                    text: "Save";
+                    clicked => {
+                        save-echo({
+                            id: active-echo.id,
+                            title: title_in.text,
+                            markdown: body_in.text,
+                            section-name: sect_combo.current-value,
+                            day: active-echo.day
+                        });
+                        edit-mode = false;
+                    }
+                }
+                if edit-mode : Button { text: "Cancel"; clicked => { edit-mode = false; } }
+            }
+
+            Rectangle { height: 1px; background: #8d7d6f55; }
+
+            // Title Box
+            title_in := LineEdit {
+                text: active-echo.title;
+                placeholder-text: "Title of your Echo...";
+                font-size: 24px;
+                enabled: edit-mode;
+            }
+
+            // Section Selection
+            HorizontalLayout {
+                spacing: 10px;
+                Text { text: "Section:"; vertical-alignment: center; color: #3e2723; font-weight: 700; }
+                sect_combo := ComboBox {
+                    model: sections;
+                    current-value: active-echo.section-name;
+                    enabled: edit-mode;
+                    horizontal-stretch: 1;
+                }
+                if edit-mode : Button { text: "New"; clicked => { add_pnl.visible = !add_pnl.visible; } }
+            }
+
+            // Quick Section Add Panel
+            add_pnl := Rectangle {
+                visible: false; height: 40px; background: #e0e0e0; border-radius: 8px;
+                HorizontalLayout {
+                    padding: 4px; spacing: 8px;
+                    new_sect_in := LineEdit {
+                        placeholder-text: "New Section Name...";
+                    }
+                    Button { text: "Add"; clicked => { request-add-section(new_sect_in.text); add_pnl.visible = false; } }
+                }
+            }
+
+            // --- THE ECHO BODY (TEXT EDITOR) ---
+            body_in := TextEdit {
+                text: active-echo.markdown;
+                enabled: edit-mode;
+                font-size: 18px;
+                wrap: word-wrap;
+                vertical-stretch: 1; // Expands to fill the space
+            }
+
+            // Footer Timestamp (Visible only in View mode)
+            if !edit-mode : Text {
+                text: "Echoed on " + active-echo.day;
+                font-size: 12px;
+                color: #8d7d6f;
+                horizontal-alignment: center;
             }
         }
     }
