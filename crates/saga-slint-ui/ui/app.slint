@@ -1,5 +1,6 @@
 import { Button, ScrollView, ListView, TextEdit, ComboBox, VerticalBox, HorizontalBox, LineEdit } from "std-widgets.slint";
 
+
 export struct EchoItem {
     id: string,
     title: string,
@@ -8,6 +9,12 @@ export struct EchoItem {
     section-name: string,
     day: string,
     created-at: string,
+}
+
+export struct JourneyDay {
+    day_id: string,      // e.g., "2026-02-18" (for matching echoes)
+    display_name: string, // e.g., "FEB 18"
+    is_today: bool,
 }
 
 export component App inherits Window {
@@ -22,6 +29,8 @@ export component App inherits Window {
     property <int> expanded-day: -1;
     in-out property <[string]> sections: [];
     in-out property <[EchoItem]> echoes: [];
+    in-out property <string> current-date-str;
+    in-out property <[JourneyDay]> journey-days: [];
 
     // Callbacks for Rust integration
     callback save-echo(EchoItem);
@@ -57,9 +66,10 @@ export component App inherits Window {
             }
 
             // LANDMARKS
-            for i in 6 : Rectangle {
+            for day[i] in journey-days : Rectangle {
                 property <bool> is-expanded: expanded-day == i;
                 property <bool> is-left: Math.mod(i, 2) == 0;
+
                 x: is-left ? 60px : 270px;
                 y: i * 220px + 350px;
                 width: 70px; height: 70px;
@@ -67,18 +77,15 @@ export component App inherits Window {
                 // Date Bubble
                 Rectangle {
                     width: 70px; height: 70px;
-                    background: is-expanded ? #ffffff : #fdfcfbaa;
+                    background: is-expanded ? #ffffff : (day.is_today ? #fff3e0 : #fdfcfbaa);
                     border-radius: 35px;
-                    border-width: 2px;
+                    border-width: day.is_today ? 3px : 2px;
                     border-color: #3e2723;
-                    drop-shadow-blur: 8px;
-                    drop-shadow-color: rgba(0,0,0,0.2);
-                    z: 5;
 
                     Text {
-                        text: "FEB\n" + (17 - i);
+                        text: day.display_name;
                         color: #3e2723;
-                        font-size: 14px;
+                        font-size: 12px;
                         font-weight: 800;
                         horizontal-alignment: center;
                     }
@@ -89,36 +96,82 @@ export component App inherits Window {
                 // ADAPTIVE BUBBLES
                 if is-expanded : Rectangle {
                     z: 10;
-                    for j in 4 : Rectangle {
-                        property <angle> base-angle: is-left ? 0deg : 180deg;
-                        property <angle> sprout-angle: base-angle + (j * 45deg) - 22.5deg;
 
+                    // Show ONLY echoes that belong to THIS day_id
+                    for echo[j] in echoes : Rectangle {
+                        // Logic: Hide the bubble if it doesn't match the day
+                        visible: echo.day == day.day_id;
+                        width: self.visible ? 55px : 0px;
+                        height: self.visible ? 55px : 0px;
+
+                        property <angle> sprout-angle: (is-left ? 0deg : 180deg) + (j * 40deg) - 20deg;
                         x: 35px + Math.sin(sprout-angle) * 85px - 25px;
                         y: 35px + Math.cos(sprout-angle) * 85px - 25px;
-                        width: 50px; height: 50px;
-                        background: (j == 3) ? #e8f5e9 : #fff9c4;
-                        border-radius: 25px;
-                        border-width: 1.5px;
-                        border-color: (j == 3) ? #66bb6a : #fbc02d;
 
-                        Text {
-                            text: j == 3 ? "+" : "Echo";
-                            font-size: j == 3 ? 20px : 10px;
-                            color: #5d4037;
-                            font-weight: 800;
+                        background: #fff9c4;
+                        border-radius: 27.5px;
+                        border-width: 1px;
+                        border-color: #fbc02d;
+
+                        VerticalLayout {
+                            padding: 6px;
+                            alignment: center;
+                            spacing: 2px;
+
+                            Text {
+                                text: echo.section-name;
+                                font-size: 7px;
+                                color: #8d7d6f;
+                                font-weight: 900;
+                                horizontal-alignment: center;
+                                overflow: elide;
+                                }
+                            Text {
+                                text: echo.title;
+                                font-size: 10px;
+                                font-weight: 700;
+                                color: #3e2723;
+                                horizontal-alignment: center;
+                                wrap: word-wrap;
+                                vertical-alignment:
+                                center;
+                                max-height: 24px;
+                                overflow: elide;
+                            }
                         }
 
                         TouchArea {
                             clicked => {
-                                if (j == 3) {
-                                    active-echo = { id: "", title: "", markdown: "", section-name: "JOURNAL", day: "FEB " + (17 - i) };
-                                    edit-mode = true;
-                                    screen-state = 1;
-                                } else {
-                                    active-echo = { id: "mock", title: "Reflections", markdown: "The journey today felt significant...", section-name: "JOURNAL", day: "FEB " + (17 - i) };
-                                    edit-mode = false;
-                                    screen-state = 1;
-                                }
+                                active-echo = echo;
+                                edit-mode = false;
+                                screen-state = 1;
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        property <angle> plus-angle: is-left ? -45deg : 225deg;
+                        x: 35px + Math.sin(plus-angle) * 85px - 25px;
+                        y: 35px + Math.cos(plus-angle) * 85px - 25px;
+                        width: 50px; height: 50px;
+                        background: #e8f5e9;
+                        border-radius: 25px;
+                        border-color: #66bb6a;
+                        border-width: 1.5px;
+
+                        Text { text: "+"; font-size: 20px; color: #2e7d32; font-weight: 800; horizontal-alignment: center; }
+
+                        TouchArea {
+                            clicked => {
+                                active-echo = {
+                                    id: "",
+                                    title: "",
+                                    markdown: "",
+                                    section-name: sections[0],
+                                    day: day.day_id
+                                };
+                                edit-mode = true;
+                                screen-state = 1;
                             }
                         }
                     }

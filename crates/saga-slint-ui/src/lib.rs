@@ -63,9 +63,13 @@ pub fn run() {
                 });
 
             if id_str.is_empty() {
-                // Make new Echo
+                // Make a new Echo if ID doesn't exist yet
+                let day_str = echo_item.day.to_string();
+                let target_day = chrono::NaiveDate::parse_from_str(&day_str, "%Y-%m-%d")
+                    .unwrap_or_else(|_| Local::now().date_naive());
+
                 let echo = Echo::new(
-                    Local::now().date_naive(),
+                    target_day,
                     section.id,
                     title.to_string(),
                     markdown.to_string(),
@@ -142,6 +146,20 @@ fn get_database_path() -> String {
 
 fn load_data(ui: &App, storage: &Storage) {
     let all_sections = load_echoes_data(ui, storage);
+
+    let mut journey_days: Vec<JourneyDay> = Vec::new();
+    let today = Local::now().date_naive();
+
+    for i in 0..14 {
+        let date = today - chrono::Duration::days(i);
+        journey_days.push(JourneyDay {
+            day_id: date.to_string().into(),
+            display_name: date.format("%b %e").to_string().to_uppercase().into(),
+            is_today: i == 0,
+        })
+    }
+
+    ui.set_journey_days(Rc::new(slint::VecModel::from(journey_days)).into());
 
     let section_names: Vec<slint::SharedString> =
         all_sections.iter().map(|s| s.name.clone().into()).collect();
