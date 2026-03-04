@@ -1,0 +1,39 @@
+[package]
+name = "repeat-alarm-ui"
+version = "0.1.0"
+edition = "2024"
+
+[package.metadata.android]
+package = "com.repeat.alarm"
+label = "Repeat Alarm"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "repeat-alarm"
+path = "src/main.rs"
+
+[dependencies]
+# Use existing crates from the workspace
+saga-core = { path = "../saga-core" }
+# saga-storage-sqlite = { path = "../saga-storage-sqlite" } # Uncomment if we use shared database
+
+chrono = "0.4"
+uuid = { version = "1.11", features = ["v4"] }
+android_logger = "0.15.1"
+log = "0.4.29"
+ndk-context = "0.1.1"
+jni = "0.21.1"
+notify-rust = "4.11.3"
+
+# Platform-specific dependencies
+[target.'cfg(target_os = "android")'.dependencies]
+slint = { workspace = true, features = ["backend-android-activity-06", "renderer-software", "compat-1-2"] }
+jni = "0.21"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+slint = { workspace = true, features = ["backend-winit", "renderer-femtovg", "compat-1-2"] }
+
+[build-dependencies]
+slint-build = { workspace = true }
