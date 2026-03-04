@@ -1,0 +1,181 @@
+import { Button, ScrollView, LineEdit, VerticalBox, HorizontalBox } from "std-widgets.slint";
+
+export struct Alarm {
+    id: string,
+    name: string,
+    note: string,
+    interval_minutes: int,
+    start_hour: int,
+    end_hour: int,
+    is_active: bool,
+}
+
+export component App inherits Window {
+    preferred-width: 400px;
+    preferred-height: 700px;
+    title: "Repeat Alarm";
+    background: #FFF8F0;
+
+    property <int> screen-state: 0;
+    in-out property <[Alarm]> alarms: [];
+
+    property <string> editing-id: "";
+    property <string> editing-name: "";
+    property <string> editing-note: "";
+    property <int> editing-interval: 60;
+    property <int> editing-start: 8;
+    property <int> editing-end: 22;
+
+    callback save-alarm(string, string, string, int, int, int);
+    callback toggle-alarm(string, bool);
+    callback delete-alarm(string);
+
+    // --- ALARM LIST SCREEN ---
+    if screen-state == 0 : VerticalBox {
+        padding: 20px;
+        spacing: 15px;
+
+        Text {
+            text: "My Alarms";
+            font-size: 28px;
+            font-weight: 800;
+            color: #1B5E20;
+        }
+
+        ScrollView {
+            VerticalBox {
+                alignment: start;
+                spacing: 12px;
+                for alarm in alarms : Rectangle {
+                    height: 100px;
+                    background: alarm.is_active ? #FFFFFF : #E0D7D0;
+                    border-radius: 12px;
+                    border-width: 2px;
+                    border-color: alarm.is_active ? #D35400 : #795548;
+
+                    HorizontalBox {
+                        padding: 15px;
+                        VerticalBox {
+                            alignment: center;
+                            spacing: 4px;
+                            Text {
+                                text: alarm.name;
+                                font-size: 18px;
+                                font-weight: 700;
+                                color: #2C1810;
+                            }
+                            Text {
+                                text: "Every " + alarm.interval_minutes + "m • " + alarm.start_hour + ":00 to " + alarm.end_hour + ":00";
+                                font-size: 14px;
+                                color: #4E342E;
+                            }
+                        }
+
+                        HorizontalBox {
+                            spacing: 10px;
+                            alignment: end;
+                            Button {
+                                text: alarm.is_active ? "ON" : "OFF";
+                                width: 60px;
+                            }
+                            Button {
+                                text: "Edit";
+                                width: 60px;
+                                clicked => {
+                                    editing-id = alarm.id;
+                                    editing-name = alarm.name;
+                                    editing-note = alarm.note;
+                                    editing-interval = alarm.interval_minutes;
+                                    editing-start = alarm.start_hour;
+                                    editing-end = alarm.end_hour;
+                                    screen-state = 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Button {
+            text: "+ Add New Alarm";
+            height: 55px;
+            // High contrast button style
+            clicked => {
+                editing-id = ""; editing-name = ""; editing-note = "";
+                editing-interval = 60; editing-start = 8; editing-end = 22;
+                screen-state = 1;
+            }
+        }
+    }
+
+    // --- ADD/EDIT SCREEN ---
+    if screen-state == 1 : VerticalBox {
+        padding: 25px;
+        spacing: 20px;
+
+        Text {
+            text: editing-id == "" ? "Create Alarm" : "Update Alarm";
+            font-size: 24px;
+            font-weight: 800;
+            color: #D35400;
+        }
+
+        VerticalBox {
+            spacing: 5px;
+            Text { text: "Alarm Name"; color: #2C1810; font-weight: 700; }
+            name_in := LineEdit { text: editing-name; }
+        }
+
+        VerticalBox {
+            spacing: 5px;
+            Text { text: "Message Note"; color: #2C1810; font-weight: 700; }
+            note_in := LineEdit { text: editing-note; }
+        }
+
+        HorizontalBox {
+            spacing: 15px;
+            VerticalBox {
+                spacing: 5px;
+                Text { text: "Interval (mins)"; color: #2C1810; font-weight: 700; }
+                int_in := LineEdit { text: editing-interval; input-type: number; }
+            }
+        }
+
+        HorizontalBox {
+            spacing: 15px;
+            VerticalBox {
+                spacing: 5px;
+                Text { text: "Start Hour"; color: #2C1810; font-weight: 700; }
+                start_in := LineEdit { text: editing-start; input-type: number; }
+            }
+            VerticalBox {
+                spacing: 5px;
+                Text { text: "End Hour"; color: #2C1810; font-weight: 700; }
+                end_in := LineEdit { text: editing-end; input-type: number; }
+            }
+        }
+
+        HorizontalBox {
+            spacing: 15px;
+            padding-top: 20px;
+            Button { text: "Cancel"; height: 45px; clicked => { screen-state = 0; } }
+            Button {
+                text: "Save Alarm";
+                height: 45px;
+                primary: true;
+                clicked => {
+                    save-alarm(editing-id, name_in.text, note_in.text,
+                        int_in.text.to-float(), start_in.text.to-float(), end_in.text.to-float());
+                    screen-state = 0;
+                }
+            }
+        }
+
+        if editing-id != "" : Button {
+            text: "Delete Alarm";
+            height: 45px;
+            clicked => { delete-alarm(editing-id); screen-state = 0; }
+        }
+    }
+}
