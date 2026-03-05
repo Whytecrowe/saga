@@ -17,7 +17,7 @@ path = "src/main.rs"
 [dependencies]
 # Use existing crates from the workspace
 saga-core = { path = "../saga-core" }
-# saga-storage-sqlite = { path = "../saga-storage-sqlite" } # Uncomment if we use shared database
+saga-storage-sqlite = { path = "../saga-storage-sqlite" }
 
 chrono = "0.4"
 uuid = { version = "1.11", features = ["v4"] }
@@ -26,6 +26,9 @@ log = "0.4.29"
 ndk-context = "0.1.1"
 jni = "0.21.1"
 notify-rust = "4.11.3"
+rusqlite = { version = "0.38", features = ["bundled"] }
+rodio = "0.22.1"
+tray-icon = "0.21.3"
 
 # Platform-specific dependencies
 [target.'cfg(target_os = "android")'.dependencies]
