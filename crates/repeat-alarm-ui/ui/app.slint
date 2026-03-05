@@ -55,6 +55,18 @@ export component App inherits Window {
                     border-width: 2px;
                     border-color: alarm.is_active ? #D35400 : #A1887F;
 
+                    TouchArea {
+                        clicked => {
+                            editing-id = alarm.id;
+                            editing-name = alarm.name;
+                            editing-note = alarm.note;
+                            editing-interval = alarm.interval_minutes;
+                            editing-start = alarm.start_hour;
+                            editing-end = alarm.end_hour;
+                            screen-state = 1;
+                        }
+                    }
+
                     HorizontalBox {
                         padding: 15px;
                         VerticalBox {
@@ -79,19 +91,6 @@ export component App inherits Window {
                                 text: alarm.is_active ? "ON" : "OFF";
                                 width: 70px;
                                 clicked => { toggle-alarm(alarm.id, !alarm.is_active); }
-                            }
-                            Button {
-                                text: "Edit";
-                                width: 70px;
-                                clicked => {
-                                    editing-id = alarm.id;
-                                    editing-name = alarm.name;
-                                    editing-note = alarm.note;
-                                    editing-interval = alarm.interval_minutes;
-                                    editing-start = alarm.start_hour;
-                                    editing-end = alarm.end_hour;
-                                    screen-state = 1;
-                                }
                             }
                         }
                     }
