@@ -2,7 +2,7 @@ slint::include_modules!();
 
 use chrono::{Local, Timelike};
 use notify_rust::Notification;
-use slint::{ComponentHandle, Model, VecModel};
+use slint::{ComponentHandle, VecModel};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -46,76 +46,69 @@ fn main() -> Result<(), slint::PlatformError> {
     });
 
     // 3. UI Event Handling
-    let ui_handle = ui.as_weak();
-    let alarms_for_ui = Arc::clone(&shared_alarms);
-
-    // This helper updates BOTH the UI and the Background Storage
-    let sync_and_update = move |new_list: Vec<Alarm>| {
-        if let Some(ui) = ui_handle.upgrade() {
-            // Update the UI list (what the user sees)
-            let model = Rc::new(VecModel::from(new_list.clone()));
+    // This helper updates ONLY the UI model
+    let ui_handle_model = ui.as_weak();
+    let update_ui_model = move |new_list: Vec<Alarm>| {
+        if let Some(ui) = ui_handle_model.upgrade() {
+            let model = Rc::new(VecModel::from(new_list));
             ui.set_alarms(model.into());
-
-            // Update the shared state (what the background thread sees)
-            if let Ok(mut lock) = alarms_for_ui.lock() {
-                *lock = new_list;
-            }
         }
     };
 
     // on save
-    let sync_save = sync_and_update.clone();
+    let update_ui_save = update_ui_model.clone();
     let shared_save = Arc::clone(&shared_alarms);
     ui.on_save_alarm(move |id, name, note, interval, start, end| {
-        let mut alarms = if let Ok(lock) = shared_save.lock() {
-            lock.clone()
-        } else {
-            vec![]
-        };
-
-        if id.is_empty() {
-            // Create New
-            alarms.push(Alarm {
-                id: Uuid::new_v4().to_string().into(),
-                name,
-                note,
-                interval_minutes: interval,
-                start_hour: start,
-                end_hour: end,
-                is_active: true,
-            });
-        } else if let Some(alarm) = alarms.iter_mut().find(|a| a.id == id) {
-            // Edit Existing
-            alarm.name = name;
-            alarm.note = note;
-            alarm.interval_minutes = interval;
-            alarm.start_hour = start;
-            alarm.end_hour = end;
+        let mut new_alarms = Vec::new();
+        if let Ok(mut lock) = shared_save.lock() {
+            if id.is_empty() {
+                // Create New
+                lock.push(Alarm {
+                    id: Uuid::new_v4().to_string().into(),
+                    name,
+                    note,
+                    interval_minutes: interval,
+                    start_hour: start,
+                    end_hour: end,
+                    is_active: true,
+                });
+            } else if let Some(alarm) = lock.iter_mut().find(|a| a.id == id) {
+                // Edit Existing
+                alarm.name = name;
+                alarm.note = note;
+                alarm.interval_minutes = interval;
+                alarm.start_hour = start;
+                alarm.end_hour = end;
+            }
+            new_alarms = lock.clone();
         }
-        sync_save(alarms);
+        update_ui_save(new_alarms);
     });
 
     // on toggle
-    let sync_toggle = sync_and_update.clone();
+    let update_ui_toggle = update_ui_model.clone();
     let shared_toggle = Arc::clone(&shared_alarms);
     ui.on_toggle_alarm(move |id, active| {
-        if let Ok(lock) = shared_toggle.lock() {
-            let mut alarms = lock.clone();
-            if let Some(alarm) = alarms.iter_mut().find(|a| a.id == id) {
+        let mut new_alarms = Vec::new();
+        if let Ok(mut lock) = shared_toggle.lock() {
+            if let Some(alarm) = lock.iter_mut().find(|a| a.id == id) {
                 alarm.is_active = active;
             }
-            sync_toggle(alarms);
+            new_alarms = lock.clone();
         }
+        update_ui_toggle(new_alarms);
     });
 
     // on delete
-    let sync_delete = sync_and_update.clone();
+    let update_ui_delete = update_ui_model.clone();
     let shared_delete = Arc::clone(&shared_alarms);
     ui.on_delete_alarm(move |id| {
-        if let Ok(lock) = shared_delete.lock() {
-            let alarms: Vec<Alarm> = lock.iter().filter(|a| a.id != id).cloned().collect();
-            sync_delete(alarms);
+        let mut new_alarms = Vec::new();
+        if let Ok(mut lock) = shared_delete.lock() {
+            lock.retain(|a| a.id != id);
+            new_alarms = lock.clone();
         }
+        update_ui_delete(new_alarms);
     });
 
     ui.run()
