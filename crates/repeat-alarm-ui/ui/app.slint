@@ -12,9 +12,11 @@ export struct Alarm {
 
 export component App inherits Window {
     preferred-width: 400px;
-    preferred-height: 700px;
+    preferred-height: 750px;
     title: "Repeat Alarm";
-    background: #FFF8F0;
+    default-font-family: "Segoe UI";
+    
+    background: #3E2723;
 
     property <int> screen-state: 0;
     in-out property <[Alarm]> alarms: [];
@@ -30,57 +32,57 @@ export component App inherits Window {
     callback toggle-alarm(string, bool);
     callback delete-alarm(string);
 
-    // --- ALARM LIST SCREEN ---
+    // --- SCREEN 0: ALARM LIST ---
     if screen-state == 0 : VerticalBox {
-        padding: 20px;
-        spacing: 15px;
+        padding: 25px;
+        spacing: 20px;
 
         Text {
             text: "My Alarms";
-            font-size: 28px;
-            font-weight: 800;
-            color: #1B5E20;
+            font-size: 32px;
+            font-weight: 900;
+            color: #FFF8F0;
         }
 
         ScrollView {
             VerticalBox {
                 alignment: start;
-                spacing: 12px;
+                spacing: 15px;
                 for alarm in alarms : Rectangle {
-                    height: 100px;
-                    background: alarm.is_active ? #FFFFFF : #E0D7D0;
+                    height: 110px;
+                    background: #FFFFFF;
                     border-radius: 12px;
                     border-width: 2px;
-                    border-color: alarm.is_active ? #D35400 : #795548;
+                    border-color: alarm.is_active ? #D35400 : #A1887F;
 
                     HorizontalBox {
                         padding: 15px;
                         VerticalBox {
                             alignment: center;
-                            spacing: 4px;
-                            Text {
-                                text: alarm.name;
-                                font-size: 18px;
-                                font-weight: 700;
-                                color: #2C1810;
+                            Text { 
+                                text: alarm.name; 
+                                font-size: 20px; 
+                                font-weight: 800; 
+                                color: #212121;
                             }
-                            Text {
-                                text: "Every " + alarm.interval_minutes + "m • " + alarm.start_hour + ":00 to " + alarm.end_hour + ":00";
-                                font-size: 14px;
-                                color: #4E342E;
+                            Text { 
+                                text: "Every " + alarm.interval_minutes + "m (" + alarm.start_hour + ":00 - " + alarm.end_hour + ":00)";
+                                font-size: 14px; 
+                                color: #5D4037; 
                             }
                         }
-
-                        HorizontalBox {
-                            spacing: 10px;
-                            alignment: end;
+                        
+                        VerticalBox {
+                            alignment: center;
+                            spacing: 8px;
                             Button {
                                 text: alarm.is_active ? "ON" : "OFF";
-                                width: 60px;
+                                width: 70px;
+                                clicked => { toggle-alarm(alarm.id, !alarm.is_active); }
                             }
                             Button {
                                 text: "Edit";
-                                width: 60px;
+                                width: 70px;
                                 clicked => {
                                     editing-id = alarm.id;
                                     editing-name = alarm.name;
@@ -100,7 +102,6 @@ export component App inherits Window {
         Button {
             text: "+ Add New Alarm";
             height: 55px;
-            // High contrast button style
             clicked => {
                 editing-id = ""; editing-name = ""; editing-note = "";
                 editing-interval = 60; editing-start = 8; editing-end = 22;
@@ -109,69 +110,112 @@ export component App inherits Window {
         }
     }
 
-    // --- ADD/EDIT SCREEN ---
+    // --- SCREEN 1: ADD/EDIT ---
     if screen-state == 1 : VerticalBox {
-        padding: 25px;
-        spacing: 20px;
+        padding: 30px;
+        spacing: 15px;
+        alignment: start;
 
         Text {
             text: editing-id == "" ? "Create Alarm" : "Update Alarm";
-            font-size: 24px;
-            font-weight: 800;
-            color: #D35400;
+            font-size: 28px; 
+            font-weight: 900; 
+            color: #f2b476; 
+            padding-bottom: 10px;
         }
 
+        // Row 1: Alarm Name
         VerticalBox {
+            padding: 0;
             spacing: 5px;
-            Text { text: "Alarm Name"; color: #2C1810; font-weight: 700; }
-            name_in := LineEdit { text: editing-name; }
+            Text { text: "Alarm Name"; color: #FFF8F0; font-weight: 700; font-size: 15px; }
+            LineEdit { 
+                text: editing-name; 
+                height: 40px;
+                edited(t) => { editing-name = t; } 
+            }
         }
-
+        
+        // Row 2: Message Note
         VerticalBox {
+            padding: 0;
             spacing: 5px;
-            Text { text: "Message Note"; color: #2C1810; font-weight: 700; }
-            note_in := LineEdit { text: editing-note; }
-        }
-
-        HorizontalBox {
-            spacing: 15px;
-            VerticalBox {
-                spacing: 5px;
-                Text { text: "Interval (mins)"; color: #2C1810; font-weight: 700; }
-                int_in := LineEdit { text: editing-interval; input-type: number; }
+            Text { text: "Message Note"; color: #FFF8F0; font-weight: 700; font-size: 15px; }
+            LineEdit { 
+                text: editing-note; 
+                height: 40px;
+                edited(t) => { editing-note = t; } 
             }
         }
 
-        HorizontalBox {
-            spacing: 15px;
-            VerticalBox {
-                spacing: 5px;
-                Text { text: "Start Hour"; color: #2C1810; font-weight: 700; }
-                start_in := LineEdit { text: editing-start; input-type: number; }
-            }
-            VerticalBox {
-                spacing: 5px;
-                Text { text: "End Hour"; color: #2C1810; font-weight: 700; }
-                end_in := LineEdit { text: editing-end; input-type: number; }
+        // Row 3: Interval (Full width or aligned)
+        VerticalBox {
+            padding: 0;
+            spacing: 5px;
+            Text { text: "Interval (mins)"; color: #FFF8F0; font-weight: 700; font-size: 15px; }
+            LineEdit { 
+                height: 40px;
+                text: editing-interval; 
+                input-type: number; 
+                edited(t) => { editing-interval = t.to-float(); } 
             }
         }
 
+        // Row 4: Start and End Hour (Symmetric)
         HorizontalBox {
-            spacing: 15px;
-            padding-top: 20px;
-            Button { text: "Cancel"; height: 45px; clicked => { screen-state = 0; } }
-            Button {
-                text: "Save Alarm";
-                height: 45px;
-                primary: true;
-                clicked => {
-                    save-alarm(editing-id, name_in.text, note_in.text,
-                        int_in.text.to-float(), start_in.text.to-float(), end_in.text.to-float());
-                    screen-state = 0;
+            padding: 0;
+            spacing: 20px;
+            VerticalBox {
+                padding: 0;
+                spacing: 5px;
+                horizontal-stretch: 1;
+                Text { text: "Start Hour"; color: #FFF8F0; font-weight: 700; font-size: 15px; }
+                LineEdit { 
+                    height: 40px;
+                    text: editing-start; 
+                    input-type: number; 
+                    edited(t) => { editing-start = t.to-float(); } 
+                }
+            }
+            VerticalBox {
+                padding: 0;
+                spacing: 5px;
+                horizontal-stretch: 1;
+                Text { text: "End Hour"; color: #FFF8F0; font-weight: 700; font-size: 15px; }
+                LineEdit { 
+                    height: 40px;
+                    text: editing-end; 
+                    input-type: number; 
+                    edited(t) => { editing-end = t.to-float(); } 
                 }
             }
         }
 
+        Rectangle { height: 15px; }
+
+        // Row 5: Actions
+        HorizontalBox {
+            padding: 0;
+            spacing: 20px;
+            Button { 
+                text: "Cancel"; 
+                height: 50px; 
+                horizontal-stretch: 1; 
+                clicked => { screen-state = 0; } 
+            }
+            Button {
+                text: "Save Alarm";
+                height: 50px;
+                horizontal-stretch: 1;
+                primary: true;
+                clicked => {
+                    save-alarm(editing-id, editing-name, editing-note,
+                        editing-interval, editing-start, editing-end);
+                    screen-state = 0;
+                }
+            }
+        }
+        
         if editing-id != "" : Button {
             text: "Delete Alarm";
             height: 45px;
