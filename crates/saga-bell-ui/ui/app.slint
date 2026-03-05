@@ -1,6 +1,6 @@
 import { Button, ScrollView, LineEdit, VerticalBox, HorizontalBox } from "std-widgets.slint";
 
-export struct Alarm {
+export struct Bell {
     id: string,
     name: string,
     note: string,
@@ -13,13 +13,13 @@ export struct Alarm {
 export component App inherits Window {
     preferred-width: 400px;
     preferred-height: 750px;
-    title: "Repeat Alarm";
+    title: "Saga Bell";
     default-font-family: "Segoe UI";
     
     background: #3E2723;
 
     property <int> screen-state: 0;
-    in-out property <[Alarm]> alarms: [];
+    in-out property <[Bell]> bells: [];
 
     property <string> editing-id: "";
     property <string> editing-name: "";
@@ -28,17 +28,17 @@ export component App inherits Window {
     property <int> editing-start: 8;
     property <int> editing-end: 22;
 
-    callback save-alarm(string, string, string, int, int, int);
-    callback toggle-alarm(string, bool);
-    callback delete-alarm(string);
+    callback save-bell(string, string, string, int, int, int);
+    callback toggle-bell(string, bool);
+    callback delete-bell(string);
 
-    // --- SCREEN 0: ALARM LIST ---
+    // --- SCREEN 0: BELL LIST ---
     if screen-state == 0 : VerticalBox {
         padding: 25px;
         spacing: 20px;
 
         Text {
-            text: "My Alarms";
+            text: "My Bells";
             font-size: 32px;
             font-weight: 900;
             color: #FFF8F0;
@@ -48,21 +48,21 @@ export component App inherits Window {
             VerticalBox {
                 alignment: start;
                 spacing: 15px;
-                for alarm in alarms : Rectangle {
+                for bell in bells : Rectangle {
                     height: 110px;
                     background: #FFFFFF;
                     border-radius: 12px;
                     border-width: 2px;
-                    border-color: alarm.is_active ? #D35400 : #A1887F;
+                    border-color: bell.is_active ? #D35400 : #A1887F;
 
                     TouchArea {
                         clicked => {
-                            editing-id = alarm.id;
-                            editing-name = alarm.name;
-                            editing-note = alarm.note;
-                            editing-interval = alarm.interval_minutes;
-                            editing-start = alarm.start_hour;
-                            editing-end = alarm.end_hour;
+                            editing-id = bell.id;
+                            editing-name = bell.name;
+                            editing-note = bell.note;
+                            editing-interval = bell.interval_minutes;
+                            editing-start = bell.start_hour;
+                            editing-end = bell.end_hour;
                             screen-state = 1;
                         }
                     }
@@ -72,13 +72,13 @@ export component App inherits Window {
                         VerticalBox {
                             alignment: center;
                             Text { 
-                                text: alarm.name; 
+                                text: bell.name; 
                                 font-size: 20px; 
                                 font-weight: 800; 
                                 color: #212121;
                             }
                             Text { 
-                                text: "Every " + alarm.interval_minutes + "m (" + alarm.start_hour + ":00 - " + alarm.end_hour + ":00)";
+                                text: "Every " + bell.interval_minutes + "m (" + bell.start_hour + ":00 - " + bell.end_hour + ":00)";
                                 font-size: 14px; 
                                 color: #5D4037; 
                             }
@@ -88,9 +88,9 @@ export component App inherits Window {
                             alignment: center;
                             spacing: 8px;
                             Button {
-                                text: alarm.is_active ? "ON" : "OFF";
+                                text: bell.is_active ? "ON" : "OFF";
                                 width: 70px;
-                                clicked => { toggle-alarm(alarm.id, !alarm.is_active); }
+                                clicked => { toggle-bell(bell.id, !bell.is_active); }
                             }
                         }
                     }
@@ -99,7 +99,7 @@ export component App inherits Window {
         }
 
         Button {
-            text: "+ Add New Alarm";
+            text: "+ Add New Bell";
             height: 55px;
             clicked => {
                 editing-id = ""; editing-name = ""; editing-note = "";
@@ -116,18 +116,18 @@ export component App inherits Window {
         alignment: start;
 
         Text {
-            text: editing-id == "" ? "Create Alarm" : "Update Alarm";
+            text: editing-id == "" ? "Create Bell" : "Update Bell";
             font-size: 28px; 
             font-weight: 900; 
             color: #f2b476; 
             padding-bottom: 10px;
         }
 
-        // Row 1: Alarm Name
+        // Row 1: Bell Name
         VerticalBox {
             padding: 0;
             spacing: 5px;
-            Text { text: "Alarm Name"; color: #FFF8F0; font-weight: 700; font-size: 15px; }
+            Text { text: "Bell Name"; color: #FFF8F0; font-weight: 700; font-size: 15px; }
             LineEdit { 
                 text: editing-name; 
                 height: 40px;
@@ -203,12 +203,12 @@ export component App inherits Window {
                 clicked => { screen-state = 0; } 
             }
             Button {
-                text: "Save Alarm";
+                text: "Save Bell";
                 height: 50px;
                 horizontal-stretch: 1;
                 primary: true;
                 clicked => {
-                    save-alarm(editing-id, editing-name, editing-note,
+                    save-bell(editing-id, editing-name, editing-note,
                         editing-interval, editing-start, editing-end);
                     screen-state = 0;
                 }
@@ -216,9 +216,9 @@ export component App inherits Window {
         }
         
         if editing-id != "" : Button {
-            text: "Delete Alarm";
+            text: "Delete Bell";
             height: 45px;
-            clicked => { delete-alarm(editing-id); screen-state = 0; }
+            clicked => { delete-bell(editing-id); screen-state = 0; }
         }
     }
 }

@@ -1,17 +1,17 @@
 [package]
-name = "repeat-alarm-ui"
+name = "saga-bell-ui"
 version = "0.1.0"
 edition = "2024"
 
 [package.metadata.android]
-package = "com.repeat.alarm"
-label = "Repeat Alarm"
+package = "com.saga.bell"
+label = "Saga Bell"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [[bin]]
-name = "repeat-alarm"
+name = "saga-bell"
 path = "src/main.rs"
 
 [dependencies]

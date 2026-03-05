@@ -4401,26 +4401,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a96887878f22d7bad8a3b6dc5b7440e0ada9a245242924394987b21cf2210a4c"
 
 [[package]]
-name = "repeat-alarm-ui"
-version = "0.1.0"
-dependencies = [
- "android_logger",
- "chrono",
- "jni",
- "log",
- "ndk-context",
- "notify-rust",
- "rodio",
- "rusqlite",
- "saga-core",
- "saga-storage-sqlite",
- "slint",
- "slint-build",
- "tray-icon",
- "uuid",
-]
-
-[[package]]
 name = "resvg"
 version = "0.44.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4590,6 +4570,26 @@ dependencies = [
  "unicode-ccc 0.4.0",
  "unicode-properties",
  "unicode-script",
+]
+
+[[package]]
+name = "saga-bell-ui"
+version = "0.1.0"
+dependencies = [
+ "android_logger",
+ "chrono",
+ "jni",
+ "log",
+ "ndk-context",
+ "notify-rust",
+ "rodio",
+ "rusqlite",
+ "saga-core",
+ "saga-storage-sqlite",
+ "slint",
+ "slint-build",
+ "tray-icon",
+ "uuid",
 ]
 
 [[package]]

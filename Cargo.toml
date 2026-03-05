@@ -4,7 +4,7 @@ members = [
     "crates/saga-core",
     "crates/saga-slint-ui",
     "crates/saga-storage-sqlite",
-    "crates/repeat-alarm-ui",
+    "crates/saga-bell-ui",
 ]
 resolver = "2"
 
