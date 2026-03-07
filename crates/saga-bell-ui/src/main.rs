@@ -172,8 +172,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         while let Ok(event) = tray_channel.try_recv() {
             if let tray_icon::TrayIconEvent::DoubleClick { .. } = event {
                 if let Some(ui) = ui_handle_icon.upgrade() {
-                    ui.window().set_minimized(false);
-
                     ui.show().unwrap();
                 }
             }
