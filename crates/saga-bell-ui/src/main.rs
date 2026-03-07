@@ -57,6 +57,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ui = App::new()?;
 
+    // Force quit the app when X is clicked
+    ui.window().on_close_requested(move || {
+        std::process::exit(0);
+    });
+
     // Update UI with initial data
     let model = Rc::new(VecModel::from(initial_bells.clone()));
     ui.set_bells(model.into());
@@ -128,6 +133,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let _tray_icon = TrayIconBuilder::new()
         .with_menu(Box::new(tray_menu))
+        .with_menu_on_left_click(false)
         .with_tooltip("Saga Bell")
         .with_icon(icon)
         .build()?;
@@ -143,17 +149,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Event Loop for Tray
+    let tray_channel = tray_icon::TrayIconEvent::receiver();
+
     let ui_handle_tray = ui.as_weak();
+    let ui_handle_icon = ui.as_weak();
+
     let menu_channel = MenuEvent::receiver();
     let tray_timer = Timer::default();
     tray_timer.start(TimerMode::Repeated, Duration::from_millis(100), move || {
-        if let Ok(event) = menu_channel.try_recv() {
+        // handle right-click menu
+        while let Ok(event) = menu_channel.try_recv() {
             if event.id == show_item.id() {
                 if let Some(ui) = ui_handle_tray.upgrade() {
                     ui.show().unwrap();
                 }
             } else if event.id == quit_item.id() {
                 std::process::exit(0);
+            }
+        }
+
+        // handle double-click to maximize window
+        while let Ok(event) = tray_channel.try_recv() {
+            if let tray_icon::TrayIconEvent::DoubleClick { .. } = event {
+                if let Some(ui) = ui_handle_icon.upgrade() {
+                    ui.window().set_minimized(false);
+
+                    ui.show().unwrap();
+                }
             }
         }
     });
