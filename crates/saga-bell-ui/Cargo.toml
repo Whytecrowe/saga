@@ -41,3 +41,4 @@ slint = { workspace = true, features = ["backend-winit", "renderer-femtovg", "co
 
 [build-dependencies]
 slint-build = { workspace = true }
+winres = "0.1"

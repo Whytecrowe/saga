@@ -15,11 +15,12 @@ export component App inherits Window {
     preferred-height: 750px;
     title: "Saga Bell";
     default-font-family: "Segoe UI";
-    
     background: #3E2723;
+    icon: window-icon;
 
     property <int> screen-state: 0;
     in-out property <[Bell]> bells: [];
+    in property <image> window-icon;
 
     property <string> editing-id: "";
     property <string> editing-name: "";
@@ -32,6 +33,7 @@ export component App inherits Window {
     callback toggle-bell(string, bool);
     callback delete-bell(string);
     callback hide-window();
+    callback set-window-icon(image);
 
     // --- SCREEN 0: BELL LIST ---
     if screen-state == 0 : VerticalBox {

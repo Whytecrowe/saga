@@ -1,3 +1,4 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 slint::include_modules!();
 
 use chrono::{Local, Timelike};
@@ -56,6 +57,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let ui = App::new()?;
+
+    // set taskbar icon
+    let icon_bytes = include_bytes!("../assets/icons/icon.ico");
+    if let Ok(icon_image) = image::load_from_memory(icon_bytes) {
+        let rgba = icon_image.to_rgba8();
+        let (width, height) = rgba.dimensions();
+        let slint_icon = slint::Image::from_rgba8(slint::SharedPixelBuffer::clone_from_slice(
+            &rgba.into_raw(),
+            width,
+            height,
+        ));
+        ui.set_window_icon(slint_icon);
+    }
 
     // Force quit the app when X is clicked
     ui.window().on_close_requested(move || {
