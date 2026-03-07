@@ -31,6 +31,7 @@ export component App inherits Window {
     callback save-bell(string, string, string, int, int, int);
     callback toggle-bell(string, bool);
     callback delete-bell(string);
+    callback hide-window();
 
     // --- SCREEN 0: BELL LIST ---
     if screen-state == 0 : VerticalBox {
@@ -106,6 +107,12 @@ export component App inherits Window {
                 editing-interval = 60; editing-start = 8; editing-end = 22;
                 screen-state = 1;
             }
+        }
+
+        Button {
+            text: "Run in Background";
+            height: 45px;
+            clicked => { hide-window(); }
         }
     }
 

@@ -2,12 +2,18 @@ slint::include_modules!();
 
 use chrono::{Local, Timelike};
 use notify_rust::Notification;
+use rodio::{Decoder, OutputStream, Sink};
 use rusqlite::{Connection, Result, params};
-use slint::{ComponentHandle, VecModel};
+use slint::{ComponentHandle, Timer, TimerMode, VecModel};
+use std::io::Cursor;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use tray_icon::{
+    TrayIconBuilder,
+    menu::{Menu, MenuEvent, MenuItem},
+};
 use uuid::Uuid;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -61,20 +67,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 2. Background Scheduler Thread
     let bells_for_thread = Arc::clone(&shared_bells);
     thread::spawn(move || {
+        // Audio stream must stay alive
+        let (_stream, stream_handle) = match OutputStream::try_default() {
+            Ok(s) => s,
+            Err(_) => return, // No audio device
+        };
+        let chime_data = include_bytes!("../assets/sound/chime.mp3");
+
         loop {
             let now = Local::now();
             let current_hour = now.hour();
             let current_minute = now.minute();
 
-            // Lock the mutex to read the current bells
             if let Ok(bells) = bells_for_thread.lock() {
                 for bell in bells.iter() {
                     if bell.is_active {
                         if current_hour >= bell.start_hour as u32
                             && current_hour < bell.end_hour as u32
                         {
-                            // Simple logic: Trigger if the minute is a multiple of the interval
                             if current_minute % (bell.interval_minutes as u32).max(1) == 0 {
+                                // 1. Play Sound
+                                let cursor = Cursor::new(chime_data.as_ref());
+                                if let Ok(source) = Decoder::new(cursor) {
+                                    if let Ok(sink) = Sink::try_new(&stream_handle) {
+                                        sink.append(source);
+                                        sink.detach();
+                                    }
+                                }
+
+                                // 2. Show Notification
                                 let _ = Notification::new()
                                     .appname("Saga Bell")
                                     .summary(&bell.name)
@@ -90,8 +111,54 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // 3. UI Event Handling
-    // This helper updates ONLY the UI model
+    // 3. System Tray Setup
+    let tray_menu = Menu::new();
+    let show_item = MenuItem::new("Show Saga Bell", true, None);
+    let quit_item = MenuItem::new("Quit", true, None);
+    let _ = tray_menu.append_items(&[&show_item, &quit_item]);
+
+    // Load Icon
+    let icon_bytes = include_bytes!("../assets/icons/bell-plus.png");
+    let icon_image = image::load_from_memory(icon_bytes)
+        .expect("Failed to load icon")
+        .to_rgba8();
+    let (width, height) = icon_image.dimensions();
+    let icon = tray_icon::Icon::from_rgba(icon_image.into_raw(), width, height)
+        .expect("Failed to create tray icon");
+
+    let _tray_icon = TrayIconBuilder::new()
+        .with_menu(Box::new(tray_menu))
+        .with_tooltip("Saga Bell")
+        .with_icon(icon)
+        .build()?;
+
+    // 4. UI Event Handling
+    let ui_weak = ui.as_weak();
+
+    // Hide Window Callback
+    ui.on_hide_window(move || {
+        if let Some(ui) = ui_weak.upgrade() {
+            ui.hide().unwrap();
+        }
+    });
+
+    // Event Loop for Tray
+    let ui_handle_tray = ui.as_weak();
+    let menu_channel = MenuEvent::receiver();
+    let tray_timer = Timer::default();
+    tray_timer.start(TimerMode::Repeated, Duration::from_millis(100), move || {
+        if let Ok(event) = menu_channel.try_recv() {
+            if event.id == show_item.id() {
+                if let Some(ui) = ui_handle_tray.upgrade() {
+                    ui.show().unwrap();
+                }
+            } else if event.id == quit_item.id() {
+                std::process::exit(0);
+            }
+        }
+    });
+
+    // Standard CRUD Callbacks
     let ui_handle_model = ui.as_weak();
     let update_ui_model = move |new_list: Vec<Bell>| {
         if let Some(ui) = ui_handle_model.upgrade() {
@@ -100,7 +167,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // on save
     let update_ui_save = update_ui_model.clone();
     let shared_save = Arc::clone(&shared_bells);
     ui.on_save_bell(move |id, name, note, interval, start, end| {
@@ -109,7 +175,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         if let Ok(mut lock) = shared_save.lock() {
             if id.is_empty() {
-                // Create New
                 let new_id = Uuid::new_v4().to_string();
                 let bell = Bell {
                     id: new_id.clone().into(),
@@ -126,7 +191,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
                 lock.push(bell);
             } else {
-                // Edit Existing
                 if let Some(bell) = lock.iter_mut().find(|a| a.id == id) {
                     bell.name = name.clone();
                     bell.note = note.clone();
@@ -144,7 +208,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         update_ui_save(new_bells);
     });
 
-    // on toggle
     let update_ui_toggle = update_ui_model.clone();
     let shared_toggle = Arc::clone(&shared_bells);
     ui.on_toggle_bell(move |id, active| {
@@ -164,7 +227,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         update_ui_toggle(new_bells);
     });
 
-    // on delete
     let update_ui_delete = update_ui_model.clone();
     let shared_delete = Arc::clone(&shared_bells);
     ui.on_delete_bell(move |id| {
@@ -179,6 +241,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         update_ui_delete(new_bells);
     });
 
-    ui.run()?;
+    ui.show()?;
+
+    // Keep app alive when all windows are hidden (tray app behavior)
+    slint::run_event_loop_until_quit()?;
+
     Ok(())
 }

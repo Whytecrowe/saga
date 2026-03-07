@@ -27,8 +27,9 @@ ndk-context = "0.1.1"
 jni = "0.21.1"
 notify-rust = "4.11.3"
 rusqlite = { version = "0.38", features = ["bundled"] }
-rodio = "0.22.1"
+rodio = "0.17"
 tray-icon = "0.21.3"
+image = "0.25.9"
 
 # Platform-specific dependencies
 [target.'cfg(target_os = "android")'.dependencies]
