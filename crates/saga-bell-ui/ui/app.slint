@@ -1,0 +1,233 @@
+import { Button, ScrollView, LineEdit, VerticalBox, HorizontalBox } from "std-widgets.slint";
+
+export struct Bell {
+    id: string,
+    name: string,
+    note: string,
+    interval_minutes: int,
+    start_hour: int,
+    end_hour: int,
+    is_active: bool,
+}
+
+export component App inherits Window {
+    preferred-width: 400px;
+    preferred-height: 750px;
+    title: "Saga Bell";
+    default-font-family: "Segoe UI";
+    background: #3E2723;
+    icon: window-icon;
+
+    property <int> screen-state: 0;
+    in-out property <[Bell]> bells: [];
+    in property <image> window-icon;
+
+    property <string> editing-id: "";
+    property <string> editing-name: "";
+    property <string> editing-note: "";
+    property <int> editing-interval: 60;
+    property <int> editing-start: 8;
+    property <int> editing-end: 22;
+
+    callback save-bell(string, string, string, int, int, int);
+    callback toggle-bell(string, bool);
+    callback delete-bell(string);
+    callback hide-window();
+    callback set-window-icon(image);
+
+    // --- SCREEN 0: BELL LIST ---
+    if screen-state == 0 : VerticalBox {
+        padding: 25px;
+        spacing: 20px;
+
+        Text {
+            text: "My Bells";
+            font-size: 32px;
+            font-weight: 900;
+            color: #FFF8F0;
+        }
+
+        ScrollView {
+            VerticalBox {
+                alignment: start;
+                spacing: 15px;
+                for bell in bells : Rectangle {
+                    height: 110px;
+                    background: #FFFFFF;
+                    border-radius: 12px;
+                    border-width: 2px;
+                    border-color: bell.is_active ? #D35400 : #A1887F;
+
+                    TouchArea {
+                        clicked => {
+                            editing-id = bell.id;
+                            editing-name = bell.name;
+                            editing-note = bell.note;
+                            editing-interval = bell.interval_minutes;
+                            editing-start = bell.start_hour;
+                            editing-end = bell.end_hour;
+                            screen-state = 1;
+                        }
+                    }
+
+                    HorizontalBox {
+                        padding: 15px;
+                        VerticalBox {
+                            alignment: center;
+                            Text { 
+                                text: bell.name; 
+                                font-size: 20px; 
+                                font-weight: 800; 
+                                color: #212121;
+                            }
+                            Text { 
+                                text: "Every " + bell.interval_minutes + "m (" + bell.start_hour + ":00 - " + bell.end_hour + ":00)";
+                                font-size: 14px; 
+                                color: #5D4037; 
+                            }
+                        }
+                        
+                        VerticalBox {
+                            alignment: center;
+                            spacing: 8px;
+                            Button {
+                                text: bell.is_active ? "ON" : "OFF";
+                                width: 70px;
+                                clicked => { toggle-bell(bell.id, !bell.is_active); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Button {
+            text: "+ Add New Bell";
+            height: 55px;
+            clicked => {
+                editing-id = ""; editing-name = ""; editing-note = "";
+                editing-interval = 60; editing-start = 8; editing-end = 22;
+                screen-state = 1;
+            }
+        }
+
+        Button {
+            text: "Run in Background";
+            height: 45px;
+            clicked => { hide-window(); }
+        }
+    }
+
+    // --- SCREEN 1: ADD/EDIT ---
+    if screen-state == 1 : VerticalBox {
+        padding: 30px;
+        spacing: 15px;
+        alignment: start;
+
+        Text {
+            text: editing-id == "" ? "Create Bell" : "Update Bell";
+            font-size: 28px; 
+            font-weight: 900; 
+            color: #f2b476; 
+            padding-bottom: 10px;
+        }
+
+        // Row 1: Bell Name
+        VerticalBox {
+            padding: 0;
+            spacing: 5px;
+            Text { text: "Bell Name"; color: #FFF8F0; font-weight: 700; font-size: 15px; }
+            LineEdit { 
+                text: editing-name; 
+                height: 40px;
+                edited(t) => { editing-name = t; } 
+            }
+        }
+        
+        // Row 2: Message Note
+        VerticalBox {
+            padding: 0;
+            spacing: 5px;
+            Text { text: "Message Note"; color: #FFF8F0; font-weight: 700; font-size: 15px; }
+            LineEdit { 
+                text: editing-note; 
+                height: 40px;
+                edited(t) => { editing-note = t; } 
+            }
+        }
+
+        // Row 3: Interval (Full width or aligned)
+        VerticalBox {
+            padding: 0;
+            spacing: 5px;
+            Text { text: "Interval (mins)"; color: #FFF8F0; font-weight: 700; font-size: 15px; }
+            LineEdit { 
+                height: 40px;
+                text: editing-interval; 
+                input-type: number; 
+                edited(t) => { editing-interval = t.to-float(); } 
+            }
+        }
+
+        // Row 4: Start and End Hour (Symmetric)
+        HorizontalBox {
+            padding: 0;
+            spacing: 20px;
+            VerticalBox {
+                padding: 0;
+                spacing: 5px;
+                horizontal-stretch: 1;
+                Text { text: "Start Hour"; color: #FFF8F0; font-weight: 700; font-size: 15px; }
+                LineEdit { 
+                    height: 40px;
+                    text: editing-start; 
+                    input-type: number; 
+                    edited(t) => { editing-start = t.to-float(); } 
+                }
+            }
+            VerticalBox {
+                padding: 0;
+                spacing: 5px;
+                horizontal-stretch: 1;
+                Text { text: "End Hour"; color: #FFF8F0; font-weight: 700; font-size: 15px; }
+                LineEdit { 
+                    height: 40px;
+                    text: editing-end; 
+                    input-type: number; 
+                    edited(t) => { editing-end = t.to-float(); } 
+                }
+            }
+        }
+
+        Rectangle { height: 15px; }
+
+        // Row 5: Actions
+        HorizontalBox {
+            padding: 0;
+            spacing: 20px;
+            Button { 
+                text: "Cancel"; 
+                height: 50px; 
+                horizontal-stretch: 1; 
+                clicked => { screen-state = 0; } 
+            }
+            Button {
+                text: "Save Bell";
+                height: 50px;
+                horizontal-stretch: 1;
+                primary: true;
+                clicked => {
+                    save-bell(editing-id, editing-name, editing-note,
+                        editing-interval, editing-start, editing-end);
+                    screen-state = 0;
+                }
+            }
+        }
+        
+        if editing-id != "" : Button {
+            text: "Delete Bell";
+            height: 45px;
+            clicked => { delete-bell(editing-id); screen-state = 0; }
+        }
+    }
+}

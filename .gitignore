@@ -9,6 +9,7 @@
 *.ipr
 *.iws
 .idea_modules/
+.junie/
 
 # VS Code
 .vscode/
