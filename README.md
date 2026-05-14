@@ -2,7 +2,7 @@
 
 > *Echoes of your path.*
 
-Journaling app for mobile and desktop built with Rust.
+Spiritual tool app for mobile and desktop built with Rust.
 
 ## Status
 
