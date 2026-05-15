@@ -22,7 +22,10 @@ pub fn run() {
         let storage = storage_clone.clone();
 
         ui.on_add_section(move |name| {
-            let new_section = Section::new(name.to_string(), 0);
+            let sort_order = storage
+                .get_next_sort_order()
+                .expect("Failed to get sort order");
+            let new_section = Section::new(name.to_string(), sort_order);
             storage
                 .save_section(&new_section)
                 .expect("Failed to save section");

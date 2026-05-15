@@ -1,4 +1,4 @@
-use chrono::{NaiveDate, Utc};
+use chrono::NaiveDate;
 use rusqlite::Connection;
 use saga_core::model::{Echo, Section};
 use std::path::Path;
@@ -197,7 +197,7 @@ impl Storage {
                 echo.section_id.to_string(),
                 echo.title,
                 echo.markdown,
-                Utc::now().to_rfc3339(),
+                echo.updated_at.to_rfc3339(),
                 echo.id.to_string(),
             ]
         )?;
