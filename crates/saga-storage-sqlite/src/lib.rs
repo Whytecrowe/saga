@@ -254,7 +254,10 @@ where
 mod tests {
     use super::*;
     use chrono::Local;
-    use saga_core::model::{ChecklistItem, EchoContent, PerformedExercise, Priority, SetEntry};
+    use saga_core::model::{
+        ChecklistItem, EchoContent, MeditationData, PerformedExercise, PlainData, Priority,
+        SetEntry, TaskData, WorkoutData,
+    };
     use uuid::Uuid;
 
     fn make_section(storage: &Storage) -> Section {
@@ -321,12 +324,12 @@ mod tests {
     fn test_create_plain_echo() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
         let section = make_section(&storage);
-        let echo = Echo::new(Local::now().date_naive(), section.id, "Echo title".to_string(), EchoContent::PlainEcho { markdown: "Hello world".to_string() });
+        let echo = Echo::new(Local::now().date_naive(), section.id, "Echo title".to_string(), EchoContent::PlainEcho(PlainData { markdown: "Hello world".to_string() }));
         storage.save_echo(&echo).expect("Failed to save echo");
         let found = storage.get_echo(&echo.id).expect("Failed to get echo").unwrap();
         assert_eq!(found.id, echo.id);
         match found.content {
-            EchoContent::PlainEcho { markdown } => assert_eq!(markdown, "Hello world"),
+            EchoContent::PlainEcho(data) => assert_eq!(data.markdown, "Hello world"),
             _ => panic!("Wrong content type"),
         }
     }
@@ -335,13 +338,13 @@ mod tests {
     fn test_update_echo() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
         let section = make_section(&storage);
-        let mut echo = Echo::new(Local::now().date_naive(), section.id, "Echo title".to_string(), EchoContent::PlainEcho { markdown: "Original".to_string() });
+        let mut echo = Echo::new(Local::now().date_naive(), section.id, "Echo title".to_string(), EchoContent::PlainEcho(PlainData { markdown: "Original".to_string() }));
         storage.save_echo(&echo).expect("Failed to save echo");
-        echo.update_content(EchoContent::PlainEcho { markdown: "Updated".to_string() });
+        echo.update_content(EchoContent::PlainEcho(PlainData { markdown: "Updated".to_string() }));
         storage.update_echo(&echo).expect("Failed to update");
         let found = storage.get_echo(&echo.id).expect("Failed to get echo").unwrap();
         match found.content {
-            EchoContent::PlainEcho { markdown } => assert_eq!(markdown, "Updated"),
+            EchoContent::PlainEcho(data) => assert_eq!(data.markdown, "Updated"),
             _ => panic!("Wrong content type"),
         }
     }
@@ -352,9 +355,9 @@ mod tests {
         let section = make_section(&storage);
         let today = Local::now().date_naive();
         let yesterday = today - chrono::Days::new(1);
-        let echo1 = Echo::new(today, section.id, "Title 1".to_string(), EchoContent::PlainEcho { markdown: "Today first".to_string() });
-        let echo2 = Echo::new(today, section.id, "Title 2".to_string(), EchoContent::PlainEcho { markdown: "Today second".to_string() });
-        let echo3 = Echo::new(yesterday, section.id, "Title 3".to_string(), EchoContent::PlainEcho { markdown: "Yesterday".to_string() });
+        let echo1 = Echo::new(today, section.id, "Title 1".to_string(), EchoContent::PlainEcho(PlainData { markdown: "Today first".to_string() }));
+        let echo2 = Echo::new(today, section.id, "Title 2".to_string(), EchoContent::PlainEcho(PlainData { markdown: "Today second".to_string() }));
+        let echo3 = Echo::new(yesterday, section.id, "Title 3".to_string(), EchoContent::PlainEcho(PlainData { markdown: "Yesterday".to_string() }));
         storage.save_echo(&echo1).expect("Failed to save echo1");
         storage.save_echo(&echo2).expect("Failed to save echo2");
         storage.save_echo(&echo3).expect("Failed to save echo3");
@@ -368,14 +371,14 @@ mod tests {
     fn test_meditation_echo_roundtrip() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
         let section = make_section(&storage);
-        let echo = Echo::new(Local::now().date_naive(), section.id, "Morning Sit".to_string(), EchoContent::MeditationEcho { markdown: Some("Felt calm.".to_string()), duration_minutes: 20, mood_before: Some(5), mood_after: Some(8) });
+        let echo = Echo::new(Local::now().date_naive(), section.id, "Morning Sit".to_string(), EchoContent::MeditationEcho(MeditationData { markdown: Some("Felt calm.".to_string()), duration_minutes: 20, mood_before: Some(5), mood_after: Some(8) }));
         storage.save_echo(&echo).expect("Failed to save");
         let found = storage.get_echo(&echo.id).expect("Failed to get").unwrap();
         match found.content {
-            EchoContent::MeditationEcho { duration_minutes, mood_before, mood_after, .. } => {
-                assert_eq!(duration_minutes, 20);
-                assert_eq!(mood_before, Some(5));
-                assert_eq!(mood_after, Some(8));
+            EchoContent::MeditationEcho(data) => {
+                assert_eq!(data.duration_minutes, 20);
+                assert_eq!(data.mood_before, Some(5));
+                assert_eq!(data.mood_after, Some(8));
             }
             _ => panic!("Wrong content type"),
         }
@@ -385,14 +388,14 @@ mod tests {
     fn test_task_echo_roundtrip() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
         let section = make_section(&storage);
-        let echo = Echo::new(Local::now().date_naive(), section.id, "Buy groceries".to_string(), EchoContent::TaskEcho { title: "Buy groceries".to_string(), description: None, due_date: None, due_time: None, completed: false, completed_at: None, priority: Priority::High, checklist: vec![ChecklistItem { text: "Milk".to_string(), done: false }, ChecklistItem { text: "Eggs".to_string(), done: true }], estimated_minutes: Some(30), recurrence: None });
+        let echo = Echo::new(Local::now().date_naive(), section.id, "Buy groceries".to_string(), EchoContent::TaskEcho(TaskData { title: "Buy groceries".to_string(), description: None, due_date: None, due_time: None, completed: false, completed_at: None, priority: Priority::High, checklist: vec![ChecklistItem { text: "Milk".to_string(), done: false }, ChecklistItem { text: "Eggs".to_string(), done: true }], estimated_minutes: Some(30), recurrence: None }));
         storage.save_echo(&echo).expect("Failed to save");
         let found = storage.get_echo(&echo.id).expect("Failed to get").unwrap();
         match found.content {
-            EchoContent::TaskEcho { checklist, .. } => {
-                assert_eq!(checklist.len(), 2);
-                assert_eq!(checklist[0].text, "Milk");
-                assert!(checklist[1].done);
+            EchoContent::TaskEcho(data) => {
+                assert_eq!(data.checklist.len(), 2);
+                assert_eq!(data.checklist[0].text, "Milk");
+                assert!(data.checklist[1].done);
             }
             _ => panic!("Wrong content type"),
         }
@@ -402,15 +405,15 @@ mod tests {
     fn test_workout_echo_roundtrip() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
         let section = make_section(&storage);
-        let echo = Echo::new(Local::now().date_naive(), section.id, "Push Day".to_string(), EchoContent::WorkoutEcho { template_id: None, exercises: vec![PerformedExercise { name: "Bench Press".to_string(), sets: vec![SetEntry { reps: 8, weight_kg: Some(80.0), completed: true, rest_seconds: Some(90), is_warmup: false }] }], duration_minutes: Some(60), notes: Some("Felt strong.".to_string()), perceived_effort: Some(7) });
+        let echo = Echo::new(Local::now().date_naive(), section.id, "Push Day".to_string(), EchoContent::WorkoutEcho(WorkoutData { template_id: None, exercises: vec![PerformedExercise { name: "Bench Press".to_string(), sets: vec![SetEntry { reps: 8, weight_kg: Some(80.0), completed: true, rest_seconds: Some(90), is_warmup: false }] }], duration_minutes: Some(60), notes: Some("Felt strong.".to_string()), perceived_effort: Some(7) }));
         storage.save_echo(&echo).expect("Failed to save");
         let found = storage.get_echo(&echo.id).expect("Failed to get").unwrap();
         match found.content {
-            EchoContent::WorkoutEcho { exercises, duration_minutes, .. } => {
-                assert_eq!(exercises.len(), 1);
-                assert_eq!(exercises[0].name, "Bench Press");
-                assert_eq!(exercises[0].sets[0].reps, 8);
-                assert_eq!(duration_minutes, Some(60));
+            EchoContent::WorkoutEcho(data) => {
+                assert_eq!(data.exercises.len(), 1);
+                assert_eq!(data.exercises[0].name, "Bench Press");
+                assert_eq!(data.exercises[0].sets[0].reps, 8);
+                assert_eq!(data.duration_minutes, Some(60));
             }
             _ => panic!("Wrong content type"),
         }
@@ -420,7 +423,7 @@ mod tests {
     fn test_echo_shared_fields_roundtrip() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
         let section = make_section(&storage);
-        let mut echo = Echo::new(Local::now().date_naive(), section.id, "Tagged Echo".to_string(), EchoContent::PlainEcho { markdown: "With metadata".to_string() });
+        let mut echo = Echo::new(Local::now().date_naive(), section.id, "Tagged Echo".to_string(), EchoContent::PlainEcho(PlainData { markdown: "With metadata".to_string() }));
         echo.mood = Some(7);
         echo.energy = Some(9);
         echo.pinned = true;

@@ -51,36 +51,48 @@ pub enum Recurrence {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlainData {
+    pub markdown: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MeditationData {
+    pub markdown: Option<String>,
+    pub duration_minutes: u32,
+    pub mood_before: Option<u8>,
+    pub mood_after: Option<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskData {
+    pub title: String,
+    pub description: Option<String>,
+    pub due_date: Option<NaiveDate>,
+    pub due_time: Option<NaiveTime>,
+    pub completed: bool,
+    pub completed_at: Option<DateTime<Local>>,
+    pub priority: Priority,
+    pub checklist: Vec<ChecklistItem>,
+    pub estimated_minutes: Option<u32>,
+    pub recurrence: Option<Recurrence>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkoutData {
+    pub template_id: Option<Uuid>,
+    pub exercises: Vec<PerformedExercise>,
+    pub duration_minutes: Option<u32>,
+    pub notes: Option<String>,
+    pub perceived_effort: Option<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum EchoContent {
-    PlainEcho {
-        markdown: String,
-    },
-    MeditationEcho {
-        markdown: Option<String>,
-        duration_minutes: u32,
-        mood_before: Option<u8>,
-        mood_after: Option<u8>,
-    },
-    TaskEcho {
-        title: String,
-        description: Option<String>,
-        due_date: Option<NaiveDate>,
-        due_time: Option<NaiveTime>,
-        completed: bool,
-        completed_at: Option<DateTime<Local>>,
-        priority: Priority,
-        checklist: Vec<ChecklistItem>,
-        estimated_minutes: Option<u32>,
-        recurrence: Option<Recurrence>,
-    },
-    WorkoutEcho {
-        template_id: Option<Uuid>,
-        exercises: Vec<PerformedExercise>,
-        duration_minutes: Option<u32>,
-        notes: Option<String>,
-        perceived_effort: Option<u8>,
-    },
+    PlainEcho(PlainData),
+    MeditationEcho(MeditationData),
+    TaskEcho(TaskData),
+    WorkoutEcho(WorkoutData),
 }
 
 #[derive(Debug, Clone)]
@@ -136,12 +148,12 @@ impl Echo {
 
     pub fn char_count(&self) -> usize {
         match &self.content {
-            EchoContent::PlainEcho { markdown } => markdown.len(),
-            EchoContent::MeditationEcho { markdown, .. } => markdown.as_deref().unwrap_or("").len(),
-            EchoContent::TaskEcho {
-                title, description, ..
-            } => title.len() + description.as_deref().unwrap_or("").len(),
-            EchoContent::WorkoutEcho { notes, .. } => notes.as_deref().unwrap_or("").len(),
+            EchoContent::PlainEcho(data) => data.markdown.len(),
+            EchoContent::MeditationEcho(data) => data.markdown.as_deref().unwrap_or("").len(),
+            EchoContent::TaskEcho(data) => {
+                data.title.len() + data.description.as_deref().unwrap_or("").len()
+            }
+            EchoContent::WorkoutEcho(data) => data.notes.as_deref().unwrap_or("").len(),
         }
     }
 
@@ -165,10 +177,10 @@ impl Echo {
 
     pub fn content_type_name(&self) -> &str {
         match &self.content {
-            EchoContent::PlainEcho { .. } => "Echo",
-            EchoContent::MeditationEcho { .. } => "Meditation Echo",
-            EchoContent::TaskEcho { .. } => "Task Echo",
-            EchoContent::WorkoutEcho { .. } => "Workout Echo",
+            EchoContent::PlainEcho(_) => "Echo",
+            EchoContent::MeditationEcho(_) => "Meditation Echo",
+            EchoContent::TaskEcho(_) => "Task Echo",
+            EchoContent::WorkoutEcho(_) => "Workout Echo",
         }
     }
 }
@@ -223,9 +235,9 @@ mod tests {
             Local::now().date_naive(),
             Uuid::new_v4(),
             "First Echo".to_string(),
-            EchoContent::PlainEcho {
+            EchoContent::PlainEcho(PlainData {
                 markdown: "Hello World!".to_string(),
-            },
+            }),
         );
 
         assert_eq!(echo.content_type_name(), "Echo");
@@ -246,12 +258,12 @@ mod tests {
             Local::now().date_naive(),
             Uuid::new_v4(),
             "Morning Sit".to_string(),
-            EchoContent::MeditationEcho {
+            EchoContent::MeditationEcho(MeditationData {
                 markdown: Some("Felt calm.".to_string()),
                 duration_minutes: 20,
                 mood_before: Some(5),
                 mood_after: Some(8),
-            },
+            }),
         );
 
         assert_eq!(echo.content_type_name(), "Meditation Echo");
@@ -265,7 +277,7 @@ mod tests {
             Local::now().date_naive(),
             Uuid::new_v4(),
             "Buy groceries".to_string(),
-            EchoContent::TaskEcho {
+            EchoContent::TaskEcho(TaskData {
                 title: "Buy groceries".to_string(),
                 description: None,
                 due_date: None,
@@ -285,7 +297,7 @@ mod tests {
                 ],
                 estimated_minutes: Some(30),
                 recurrence: None,
-            },
+            }),
         );
 
         assert_eq!(echo.content_type_name(), "Task Echo");
@@ -298,7 +310,7 @@ mod tests {
             Local::now().date_naive(),
             Uuid::new_v4(),
             "Push Day".to_string(),
-            EchoContent::WorkoutEcho {
+            EchoContent::WorkoutEcho(WorkoutData {
                 template_id: None,
                 exercises: vec![PerformedExercise {
                     name: "Bench Press".to_string(),
@@ -313,7 +325,7 @@ mod tests {
                 duration_minutes: Some(60),
                 notes: Some("Felt strong.".to_string()),
                 perceived_effort: Some(7),
-            },
+            }),
         );
 
         assert_eq!(echo.content_type_name(), "Workout Echo");
@@ -326,25 +338,25 @@ mod tests {
             Local::now().date_naive(),
             Uuid::new_v4(),
             "My Echo".to_string(),
-            EchoContent::PlainEcho {
+            EchoContent::PlainEcho(PlainData {
                 markdown: "Original".to_string(),
-            },
+            }),
         );
 
-        echo.update_content(EchoContent::PlainEcho {
+        echo.update_content(EchoContent::PlainEcho(PlainData {
             markdown: "Updated".to_string(),
-        });
+        }));
         assert!(echo.was_modified());
     }
 
     #[test]
     fn test_echo_content_serde() {
-        let content = EchoContent::MeditationEcho {
+        let content = EchoContent::MeditationEcho(MeditationData {
             markdown: Some("Peaceful.".to_string()),
             duration_minutes: 15,
             mood_before: Some(4),
             mood_after: Some(9),
-        };
+        });
 
         let json = serde_json::to_string(&content).expect("serialize failed");
         println!("Serialized: {}", json);
@@ -352,10 +364,8 @@ mod tests {
         let restored: EchoContent = serde_json::from_str(&json).expect("deserialize failed");
 
         match restored {
-            EchoContent::MeditationEcho {
-                duration_minutes, ..
-            } => {
-                assert_eq!(duration_minutes, 15);
+            EchoContent::MeditationEcho(data) => {
+                assert_eq!(data.duration_minutes, 15);
             }
             _ => panic!("Wrong variant after deserialization"),
         }

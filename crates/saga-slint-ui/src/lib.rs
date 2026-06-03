@@ -1,7 +1,7 @@
 slint::include_modules!();
 
 use chrono::Local;
-use saga_core::model::{Echo, EchoContent, Section};
+use saga_core::model::{Echo, EchoContent, PlainData, Section};
 use saga_storage_sqlite::Storage;
 use std::rc::Rc;
 
@@ -75,9 +75,9 @@ pub fn run() {
                     target_day,
                     section.id,
                     title.to_string(),
-                    EchoContent::PlainEcho {
+                    EchoContent::PlainEcho(PlainData {
                         markdown: markdown.to_string(),
-                    },
+                    }),
                 );
 
                 storage.save_echo(&echo).expect("Failed to save echo");
@@ -87,9 +87,9 @@ pub fn run() {
                 if let Some(mut echo) = storage.get_echo(&uuid).unwrap() {
                     echo.title = title;
                     echo.section_id = section.id;
-                    echo.update_content(EchoContent::PlainEcho {
+                    echo.update_content(EchoContent::PlainEcho(PlainData {
                         markdown,
-                    });
+                    }));
 
                     storage.update_echo(&echo).expect("Failed to update echo");
                 }
@@ -217,7 +217,7 @@ fn load_echoes_data(ui: &App, storage: &Storage) -> Vec<Section> {
 
 fn body_text(content: &EchoContent) -> String {
     match content {
-        EchoContent::PlainEcho { markdown } => markdown.clone(),
+        EchoContent::PlainEcho(data) => data.markdown.clone(),
         _ => String::new(),
     }
 }

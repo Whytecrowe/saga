@@ -1,7 +1,7 @@
 use anyhow::Result;
 use chrono::Local;
 use clap::{Parser, Subcommand};
-use saga_core::model::{Echo, EchoContent, Section};
+use saga_core::model::{Echo, EchoContent, PlainData, Section};
 use saga_storage_sqlite::Storage;
 
 #[derive(Parser)]
@@ -94,7 +94,7 @@ fn main() -> Result<()> {
                         Local::now().date_naive(),
                         found_section.id,
                         title,
-                        EchoContent::PlainEcho { markdown: text },
+                        EchoContent::PlainEcho(PlainData { markdown: text }),
                     );
                     storage.save_echo(&new_echo).expect("Failed to save Echo");
                     println!("Created echo in section '{}': {}", section, new_echo);
@@ -114,10 +114,10 @@ fn main() -> Result<()> {
                             .map(|s| s.name.as_str())
                             .unwrap_or("Unknown");
                         let preview = match &echo.content {
-                            EchoContent::PlainEcho { markdown } => markdown.as_str(),
-                            EchoContent::MeditationEcho { markdown, .. } => markdown.as_deref().unwrap_or("(no notes)"),
-                            EchoContent::TaskEcho { title, .. } => title.as_str(),
-                            EchoContent::WorkoutEcho { notes, .. } => notes.as_deref().unwrap_or("(no notes)"),
+                            EchoContent::PlainEcho(data) => data.markdown.as_str(),
+                            EchoContent::MeditationEcho(data) => data.markdown.as_deref().unwrap_or("(no notes)"),
+                            EchoContent::TaskEcho(data) => data.title.as_str(),
+                            EchoContent::WorkoutEcho(data) => data.notes.as_deref().unwrap_or("(no notes)"),
                         };
                         println!("[{}] {} — {}", section_name, echo.content_type_name(), preview);
                         println!("  Created: {}\n", echo.created_at.format("%l:%M %p"));
