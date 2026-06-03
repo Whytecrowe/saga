@@ -196,6 +196,14 @@ impl Storage {
         let echoes = stmt.query_map([], map_echo_row)?;
         echoes.map(|r| r.map_err(StorageError::Database)?.map_err(Into::into)).collect()
     }
+
+    pub fn get_all_tasks(&self) -> Result<Vec<Echo>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, day, section_id, title, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at FROM echoes WHERE content_type = ?1 ORDER BY day DESC, created_at DESC",
+        )?;
+        let echoes = stmt.query_map(rusqlite::params!["Task Echo"], map_echo_row)?;
+        echoes.map(|r| r.map_err(StorageError::Database)?.map_err(Into::into)).collect()
+    }
 }
 
 fn map_echo_row(row: &rusqlite::Row) -> rusqlite::Result<Result<Echo>> {
@@ -434,5 +442,24 @@ mod tests {
         assert_eq!(found.energy, Some(9));
         assert!(found.pinned);
         assert_eq!(found.tags, vec!["rust", "learning"]);
+    }
+
+    #[test]
+    fn test_get_all_tasks() {
+        let storage = Storage::new(":memory:").expect("Failed to create storage");
+        let section = make_section(&storage);
+        let day = Local::now().date_naive();
+
+        let plain = Echo::new(day, section.id, "Note".to_string(), EchoContent::PlainEcho(PlainData { markdown: "hi".to_string() }));
+        let task1 = Echo::new_task(day, section.id, "Task one".to_string());
+        let task2 = Echo::new_task(day, section.id, "Task two".to_string());
+
+        storage.save_echo(&plain).expect("Failed to save plain");
+        storage.save_echo(&task1).expect("Failed to save task1");
+        storage.save_echo(&task2).expect("Failed to save task2");
+
+        let tasks = storage.get_all_tasks().expect("Failed to get tasks");
+        assert_eq!(tasks.len(), 2);
+        assert!(tasks.iter().all(|e| e.content_type_name() == "Task Echo"));
     }
 }

@@ -374,6 +374,29 @@ impl Default for TaskData {
     }
 }
 
+pub fn open_tasks(echoes: &[Echo]) -> Vec<&Echo> {
+    echoes
+        .iter()
+        .filter(|echo| echo.as_task().is_some_and(|task| !task.completed))
+        .collect()
+}
+
+pub fn overdue_tasks(echoes: &[Echo], now: DateTime<Local>) -> Vec<&Echo> {
+    echoes
+        .iter()
+        .filter(|echo| echo.as_task().is_some_and(|task| task.is_overdue(now)))
+        .collect()
+}
+
+pub fn tasks_by_priority(echoes: &[Echo]) -> Vec<&Echo> {
+    let mut tasks: Vec<(&Echo, &Priority)> = echoes
+        .iter()
+        .filter_map(|echo| echo.as_task().map(|task| (echo, &task.priority)))
+        .collect();
+    tasks.sort_by(|a, b| b.1.cmp(a.1));
+    tasks.into_iter().map(|(echo, _)| echo).collect()
+}
+
 impl Section {
     pub fn new(name: String, sort_order: i32) -> Self {
         Self {
@@ -759,5 +782,52 @@ mod tests {
             }),
         );
         assert!(echo.as_task().is_none());
+    }
+
+    #[test]
+    fn test_task_query_helpers() {
+        let section = Uuid::new_v4();
+        let day = NaiveDate::from_ymd_opt(2026, 6, 1).unwrap();
+
+        let mut low_open = Echo::new_task(day, section, "Low open".to_string());
+        low_open.as_task_mut().unwrap().set_priority(Priority::Low);
+
+        let mut critical_open = Echo::new_task(day, section, "Critical open".to_string());
+        critical_open
+            .as_task_mut()
+            .unwrap()
+            .set_priority(Priority::Critical);
+
+        let mut done = Echo::new_task(day, section, "Done".to_string());
+        done.as_task_mut().unwrap().complete();
+
+        let mut overdue = Echo::new_task(day, section, "Overdue".to_string());
+        overdue
+            .as_task_mut()
+            .unwrap()
+            .set_due(Some(NaiveDate::from_ymd_opt(2020, 1, 1).unwrap()), None);
+
+        let plain = Echo::new(
+            day,
+            section,
+            "Note".to_string(),
+            EchoContent::PlainEcho(PlainData {
+                markdown: "x".to_string(),
+            }),
+        );
+
+        let all = vec![low_open, critical_open, done, overdue, plain];
+
+        let open = open_tasks(&all);
+        assert_eq!(open.len(), 3);
+
+        let now = Local::now();
+        let late = overdue_tasks(&all, now);
+        assert_eq!(late.len(), 1);
+        assert_eq!(late[0].title, "Overdue");
+
+        let ranked = tasks_by_priority(&all);
+        assert_eq!(ranked.len(), 4);
+        assert_eq!(ranked[0].title, "Critical open");
     }
 }
