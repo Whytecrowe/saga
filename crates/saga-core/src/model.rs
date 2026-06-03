@@ -1,5 +1,6 @@
 use chrono::{DateTime, Days, Local, Months, NaiveDate, NaiveTime, TimeZone};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Formatter;
 use uuid::Uuid;
@@ -243,6 +244,44 @@ impl Echo {
 
         Some(next_echo)
     }
+
+    pub fn new_workout(day: NaiveDate, section_id: Uuid, title: String) -> Self {
+        Echo::new(
+            day,
+            section_id,
+            title,
+            EchoContent::WorkoutEcho(WorkoutData::new()),
+        )
+    }
+
+    pub fn new_workout_from_template(
+        day: NaiveDate,
+        section_id: Uuid,
+        title: String,
+        template: &WorkoutTemplate,
+        history: &[Echo],
+    ) -> Self {
+        Echo::new(
+            day,
+            section_id,
+            title,
+            EchoContent::WorkoutEcho(WorkoutData::from_template(template, history)),
+        )
+    }
+
+    pub fn as_workout(&self) -> Option<&WorkoutData> {
+        match &self.content {
+            EchoContent::WorkoutEcho(data) => Some(data),
+            _ => None,
+        }
+    }
+
+    pub fn as_workout_mut(&mut self) -> Option<&mut WorkoutData> {
+        match &mut self.content {
+            EchoContent::WorkoutEcho(data) => Some(data),
+            _ => None,
+        }
+    }
 }
 
 impl TaskData {
@@ -453,6 +492,141 @@ impl WorkoutTemplate {
             let item = self.exercises.remove(from);
             self.exercises.insert(to, item);
         }
+    }
+}
+
+fn last_performed_by_name<'a>(
+    history: &'a [Echo],
+) -> HashMap<&'a str, &'a PerformedExercise> {
+    let mut map: HashMap<&'a str, &'a PerformedExercise> = HashMap::new();
+
+    for echo in history {
+        if let Some(workout) = echo.as_workout() {
+            for exercise in &workout.exercises {
+                map.entry(exercise.name.as_str()).or_insert(exercise);
+            }
+        }
+    }
+
+    map
+}
+
+impl WorkoutData {
+    pub fn new() -> Self {
+        Self {
+            template_id: None,
+            exercises: Vec::new(),
+            duration_minutes: None,
+            notes: None,
+            perceived_effort: None,
+        }
+    }
+
+    pub fn from_template(template: &WorkoutTemplate, history: &[Echo]) -> Self {
+        let last_by_name = last_performed_by_name(history);
+
+        let exercises = template
+            .exercises
+            .iter()
+            .map(|planned| {
+                let previous = last_by_name.get(planned.name.as_str());
+
+                let sets = planned
+                    .sets
+                    .iter()
+                    .enumerate()
+                    .map(|(index, planned_set)| {
+                        let previous_set =
+                            previous.and_then(|exercise| exercise.sets.get(index));
+
+                        SetEntry {
+                            reps: previous_set
+                                .map(|set| set.reps)
+                                .or(planned_set.target_reps)
+                                .unwrap_or(0),
+                            weight_kg: previous_set
+                                .and_then(|set| set.weight_kg)
+                                .or(planned_set.target_weight_kg),
+                            completed: false,
+                            rest_seconds: previous_set
+                                .and_then(|set| set.rest_seconds)
+                                .or(planned_set.target_rest_seconds),
+                            is_warmup: planned_set.is_warmup,
+                        }
+                    })
+                    .collect();
+
+                PerformedExercise {
+                    name: planned.name.clone(),
+                    sets,
+                }
+            })
+            .collect();
+
+        Self {
+            template_id: Some(template.id),
+            exercises,
+            duration_minutes: None,
+            notes: None,
+            perceived_effort: None,
+        }
+    }
+
+    pub fn add_exercise(&mut self, name: String) {
+        self.exercises.push(PerformedExercise {
+            name,
+            sets: Vec::new(),
+        });
+    }
+
+    pub fn remove_exercise(&mut self, index: usize) {
+        if index < self.exercises.len() {
+            self.exercises.remove(index);
+        }
+    }
+
+    pub fn log_set(&mut self, exercise_index: usize, set: SetEntry) {
+        if let Some(exercise) = self.exercises.get_mut(exercise_index) {
+            exercise.sets.push(set);
+        }
+    }
+
+    pub fn is_freeform(&self) -> bool {
+        self.template_id.is_none()
+    }
+
+    pub fn working_sets(&self) -> impl Iterator<Item = &SetEntry> {
+        self.exercises
+            .iter()
+            .flat_map(|exercise| exercise.sets.iter())
+            .filter(|set| set.completed && !set.is_warmup)
+    }
+
+    pub fn total_volume(&self) -> f32 {
+        self.working_sets()
+            .map(|set| set.reps as f32 * set.weight_kg.unwrap_or(0.0))
+            .sum()
+    }
+
+    pub fn total_sets(&self) -> usize {
+        self.exercises
+            .iter()
+            .map(|exercise| exercise.sets.len())
+            .sum()
+    }
+
+    pub fn completed_sets(&self) -> usize {
+        self.exercises
+            .iter()
+            .flat_map(|exercise| exercise.sets.iter())
+            .filter(|set| set.completed)
+            .count()
+    }
+}
+
+impl Default for WorkoutData {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -681,6 +855,226 @@ mod tests {
 
         template.remove_exercise(1);
         assert_eq!(template.exercises.len(), 2);
+    }
+
+    fn push_day_template() -> WorkoutTemplate {
+        let mut bench = PlannedExercise::new("Bench".to_string());
+        for _ in 0..3 {
+            bench.add_set(PlannedSet {
+                target_reps: Some(8),
+                target_weight_kg: Some(60.0),
+                target_rest_seconds: Some(120),
+                is_warmup: false,
+            });
+        }
+
+        let mut template = WorkoutTemplate::new("Push Day".to_string(), None, 0);
+        template.add_exercise(bench);
+        template
+    }
+
+    #[test]
+    fn test_workout_freeform_new() {
+        let echo = Echo::new_workout(
+            NaiveDate::from_ymd_opt(2026, 6, 3).unwrap(),
+            Uuid::new_v4(),
+            "Freeform lift".to_string(),
+        );
+        let workout = echo.as_workout().unwrap();
+        assert!(workout.is_freeform());
+        assert!(workout.exercises.is_empty());
+        assert!(workout.template_id.is_none());
+    }
+
+    #[test]
+    fn test_from_template_empty_history_uses_plan() {
+        let template = push_day_template();
+        let workout = WorkoutData::from_template(&template, &[]);
+
+        assert_eq!(workout.template_id, Some(template.id));
+        assert!(!workout.is_freeform());
+        assert_eq!(workout.exercises.len(), 1);
+
+        let bench = &workout.exercises[0];
+        assert_eq!(bench.name, "Bench");
+        assert_eq!(bench.sets.len(), 3);
+        for set in &bench.sets {
+            assert_eq!(set.weight_kg, Some(60.0));
+            assert_eq!(set.reps, 8);
+            assert_eq!(set.rest_seconds, Some(120));
+            assert!(!set.completed);
+        }
+    }
+
+    #[test]
+    fn test_from_template_no_plan_weight_is_blank() {
+        let mut squat = PlannedExercise::new("Squat".to_string());
+        squat.add_set(PlannedSet {
+            target_reps: None,
+            target_weight_kg: None,
+            target_rest_seconds: None,
+            is_warmup: false,
+        });
+        let mut template = WorkoutTemplate::new("Leg Day".to_string(), None, 0);
+        template.add_exercise(squat);
+
+        let workout = WorkoutData::from_template(&template, &[]);
+        let set = &workout.exercises[0].sets[0];
+        assert_eq!(set.weight_kg, None);
+        assert_eq!(set.reps, 0);
+        assert_eq!(set.rest_seconds, None);
+    }
+
+    #[test]
+    fn test_from_template_uses_history_ramp() {
+        let section = Uuid::new_v4();
+        let mut last = Echo::new_workout(
+            NaiveDate::from_ymd_opt(2026, 6, 1).unwrap(),
+            section,
+            "Last Push".to_string(),
+        );
+        {
+            let workout = last.as_workout_mut().unwrap();
+            workout.add_exercise("Bench".to_string());
+            workout.log_set(
+                0,
+                SetEntry {
+                    reps: 5,
+                    weight_kg: Some(60.0),
+                    completed: true,
+                    rest_seconds: Some(90),
+                    is_warmup: true,
+                },
+            );
+            workout.log_set(
+                0,
+                SetEntry {
+                    reps: 5,
+                    weight_kg: Some(100.0),
+                    completed: true,
+                    rest_seconds: Some(120),
+                    is_warmup: false,
+                },
+            );
+            workout.log_set(
+                0,
+                SetEntry {
+                    reps: 5,
+                    weight_kg: Some(140.0),
+                    completed: true,
+                    rest_seconds: Some(180),
+                    is_warmup: false,
+                },
+            );
+        }
+
+        let history = vec![last];
+        let template = push_day_template();
+        let workout = WorkoutData::from_template(&template, &history);
+
+        let bench = &workout.exercises[0];
+        assert_eq!(bench.sets[0].weight_kg, Some(60.0));
+        assert_eq!(bench.sets[1].weight_kg, Some(100.0));
+        assert_eq!(bench.sets[2].weight_kg, Some(140.0));
+        assert_eq!(bench.sets[1].reps, 5);
+    }
+
+    #[test]
+    fn test_from_template_history_shorter_than_plan() {
+        let mut last = Echo::new_workout(
+            NaiveDate::from_ymd_opt(2026, 6, 1).unwrap(),
+            Uuid::new_v4(),
+            "Last".to_string(),
+        );
+        {
+            let workout = last.as_workout_mut().unwrap();
+            workout.add_exercise("Bench".to_string());
+            workout.log_set(
+                0,
+                SetEntry {
+                    reps: 3,
+                    weight_kg: Some(100.0),
+                    completed: true,
+                    rest_seconds: None,
+                    is_warmup: false,
+                },
+            );
+        }
+
+        let history = vec![last];
+        let template = push_day_template();
+        let workout = WorkoutData::from_template(&template, &history);
+
+        let bench = &workout.exercises[0];
+        assert_eq!(bench.sets[0].weight_kg, Some(100.0));
+        assert_eq!(bench.sets[1].weight_kg, Some(60.0));
+        assert_eq!(bench.sets[2].weight_kg, Some(60.0));
+    }
+
+    #[test]
+    fn test_from_template_independence() {
+        let template = push_day_template();
+        let mut workout = WorkoutData::from_template(&template, &[]);
+
+        workout.add_exercise("Bonus Curls".to_string());
+        workout.exercises[0].sets[0].weight_kg = Some(999.0);
+
+        assert_eq!(template.exercises.len(), 1);
+        assert_eq!(template.exercises[0].sets.len(), 3);
+        assert_eq!(template.exercises[0].sets[0].target_weight_kg, Some(60.0));
+    }
+
+    #[test]
+    fn test_total_volume_excludes_warmup_and_uncompleted() {
+        let mut workout = WorkoutData::new();
+        workout.add_exercise("Bench".to_string());
+        workout.log_set(
+            0,
+            SetEntry {
+                reps: 10,
+                weight_kg: Some(40.0),
+                completed: true,
+                rest_seconds: None,
+                is_warmup: true,
+            },
+        );
+        workout.log_set(
+            0,
+            SetEntry {
+                reps: 8,
+                weight_kg: Some(100.0),
+                completed: true,
+                rest_seconds: None,
+                is_warmup: false,
+            },
+        );
+        workout.log_set(
+            0,
+            SetEntry {
+                reps: 8,
+                weight_kg: Some(100.0),
+                completed: false,
+                rest_seconds: None,
+                is_warmup: false,
+            },
+        );
+
+        assert_eq!(workout.total_volume(), 800.0);
+        assert_eq!(workout.total_sets(), 3);
+        assert_eq!(workout.completed_sets(), 2);
+    }
+
+    #[test]
+    fn test_as_workout_on_non_workout() {
+        let echo = Echo::new(
+            Local::now().date_naive(),
+            Uuid::new_v4(),
+            "Plain".to_string(),
+            EchoContent::PlainEcho(PlainData {
+                markdown: "hi".to_string(),
+            }),
+        );
+        assert!(echo.as_workout().is_none());
     }
 
     #[test]
