@@ -1,7 +1,7 @@
 slint::include_modules!();
 
 use chrono::Local;
-use saga_core::model::{Echo, Section};
+use saga_core::model::{Echo, EchoContent, PlainData, Section};
 use saga_storage_sqlite::Storage;
 use std::rc::Rc;
 
@@ -75,7 +75,9 @@ pub fn run() {
                     target_day,
                     section.id,
                     title.to_string(),
-                    markdown.to_string(),
+                    EchoContent::PlainEcho(PlainData {
+                        markdown: markdown.to_string(),
+                    }),
                 );
 
                 storage.save_echo(&echo).expect("Failed to save echo");
@@ -84,9 +86,10 @@ pub fn run() {
                 let uuid = uuid::Uuid::parse_str(&id_str).expect("Invalid UUID for Echo");
                 if let Some(mut echo) = storage.get_echo(&uuid).unwrap() {
                     echo.title = title;
-                    echo.markdown = markdown;
                     echo.section_id = section.id;
-                    echo.updated_at = Local::now();
+                    echo.update_content(EchoContent::PlainEcho(PlainData {
+                        markdown,
+                    }));
 
                     storage.update_echo(&echo).expect("Failed to update echo");
                 }
@@ -185,8 +188,9 @@ fn load_echoes_data(ui: &App, storage: &Storage) -> Vec<Section> {
                 .map(|s| s.name.clone())
                 .unwrap_or_else(|| "Unknown".to_string());
 
-            let preview_text = e
-                .markdown
+            let body = body_text(&e.content);
+
+            let preview_text = body
                 .lines()
                 .next()
                 .unwrap_or("")
@@ -198,7 +202,7 @@ fn load_echoes_data(ui: &App, storage: &Storage) -> Vec<Section> {
                 id: e.id.to_string().into(),
                 title: e.title.clone().into(),
                 preview: preview_text.into(),
-                markdown: e.markdown.clone().into(),
+                markdown: body.into(),
                 section_name: section_name.into(),
                 day: e.day.to_string().into(),
                 created_at: e.created_at.format("%I:%M %p").to_string().into(),
@@ -209,6 +213,13 @@ fn load_echoes_data(ui: &App, storage: &Storage) -> Vec<Section> {
     ui.set_echoes(Rc::new(slint::VecModel::from(echo_items)).into());
 
     sections
+}
+
+fn body_text(content: &EchoContent) -> String {
+    match content {
+        EchoContent::PlainEcho(data) => data.markdown.clone(),
+        _ => String::new(),
+    }
 }
 
 #[cfg(target_os = "android")]
