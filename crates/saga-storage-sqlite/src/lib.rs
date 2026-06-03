@@ -388,7 +388,7 @@ mod tests {
     fn test_task_echo_roundtrip() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
         let section = make_section(&storage);
-        let echo = Echo::new(Local::now().date_naive(), section.id, "Buy groceries".to_string(), EchoContent::TaskEcho(TaskData { title: "Buy groceries".to_string(), description: None, due_date: None, due_time: None, completed: false, completed_at: None, priority: Priority::High, checklist: vec![ChecklistItem { text: "Milk".to_string(), done: false }, ChecklistItem { text: "Eggs".to_string(), done: true }], estimated_minutes: Some(30), recurrence: None }));
+        let echo = Echo::new(Local::now().date_naive(), section.id, "Buy groceries".to_string(), EchoContent::TaskEcho(TaskData { description: None, due_date: None, due_time: None, completed: false, completed_at: None, priority: Priority::High, checklist: vec![ChecklistItem { text: "Milk".to_string(), done: false }, ChecklistItem { text: "Eggs".to_string(), done: true }], estimated_minutes: Some(30), recurrence: None }));
         storage.save_echo(&echo).expect("Failed to save");
         let found = storage.get_echo(&echo.id).expect("Failed to get").unwrap();
         match found.content {

@@ -116,7 +116,7 @@ fn main() -> Result<()> {
                         let preview = match &echo.content {
                             EchoContent::PlainEcho(data) => data.markdown.as_str(),
                             EchoContent::MeditationEcho(data) => data.markdown.as_deref().unwrap_or("(no notes)"),
-                            EchoContent::TaskEcho(data) => data.title.as_str(),
+                            EchoContent::TaskEcho(data) => data.description.as_deref().unwrap_or("(no description)"),
                             EchoContent::WorkoutEcho(data) => data.notes.as_deref().unwrap_or("(no notes)"),
                         };
                         println!("[{}] {} — {}", section_name, echo.content_type_name(), preview);

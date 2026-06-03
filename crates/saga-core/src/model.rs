@@ -1,4 +1,4 @@
-use chrono::{DateTime, Local, NaiveDate, NaiveTime};
+use chrono::{DateTime, Days, Local, Months, NaiveDate, NaiveTime, TimeZone};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Formatter;
@@ -35,7 +35,7 @@ pub struct PlannedExercise {
     pub is_warmup: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Priority {
     Low,
     Medium,
@@ -43,7 +43,7 @@ pub enum Priority {
     Critical,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum Recurrence {
     Daily,
     Weekly,
@@ -65,7 +65,6 @@ pub struct MeditationData {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskData {
-    pub title: String,
     pub description: Option<String>,
     pub due_date: Option<NaiveDate>,
     pub due_time: Option<NaiveTime>,
@@ -150,9 +149,7 @@ impl Echo {
         match &self.content {
             EchoContent::PlainEcho(data) => data.markdown.len(),
             EchoContent::MeditationEcho(data) => data.markdown.as_deref().unwrap_or("").len(),
-            EchoContent::TaskEcho(data) => {
-                data.title.len() + data.description.as_deref().unwrap_or("").len()
-            }
+            EchoContent::TaskEcho(data) => data.description.as_deref().unwrap_or("").len(),
             EchoContent::WorkoutEcho(data) => data.notes.as_deref().unwrap_or("").len(),
         }
     }
@@ -182,6 +179,198 @@ impl Echo {
             EchoContent::TaskEcho(_) => "Task Echo",
             EchoContent::WorkoutEcho(_) => "Workout Echo",
         }
+    }
+
+    pub fn new_task(day: NaiveDate, section_id: Uuid, title: String) -> Self {
+        Echo::new(day, section_id, title, EchoContent::TaskEcho(TaskData::new()))
+    }
+
+    pub fn as_task(&self) -> Option<&TaskData> {
+        match &self.content {
+            EchoContent::TaskEcho(data) => Some(data),
+            _ => None,
+        }
+    }
+
+    pub fn as_task_mut(&mut self) -> Option<&mut TaskData> {
+        match &mut self.content {
+            EchoContent::TaskEcho(data) => Some(data),
+            _ => None,
+        }
+    }
+
+    pub fn spawn_next_occurrence(&self) -> Option<Echo> {
+        let task = self.as_task()?;
+        let next_date = task.next_due_date()?;
+
+        let mut next_task = task.clone();
+        next_task.completed = false;
+        next_task.completed_at = None;
+        next_task.due_date = Some(next_date);
+        for item in next_task.checklist.iter_mut() {
+            item.done = false;
+        }
+
+        let mut next_echo = Echo::new(
+            next_date,
+            self.section_id,
+            self.title.clone(),
+            EchoContent::TaskEcho(next_task),
+        );
+        next_echo.tags = self.tags.clone();
+
+        Some(next_echo)
+    }
+}
+
+impl TaskData {
+    pub fn new() -> Self {
+        Self {
+            description: None,
+            due_date: None,
+            due_time: None,
+            completed: false,
+            completed_at: None,
+            priority: Priority::Medium,
+            checklist: Vec::new(),
+            estimated_minutes: None,
+            recurrence: None,
+        }
+    }
+
+    pub fn complete(&mut self) {
+        self.completed = true;
+        self.completed_at = Some(Local::now());
+    }
+
+    pub fn uncomplete(&mut self) {
+        self.completed = false;
+        self.completed_at = None;
+    }
+
+    pub fn is_complete(&self) -> bool {
+        self.completed
+    }
+
+    pub fn add_item(&mut self, text: String) {
+        self.checklist.push(ChecklistItem {
+            text,
+            done: false,
+        });
+        self.recompute_completion();
+    }
+
+    pub fn remove_item(&mut self, index: usize) {
+        if index < self.checklist.len() {
+            self.checklist.remove(index);
+            self.recompute_completion();
+        }
+    }
+
+    pub fn edit_item(&mut self, index: usize, text: String) {
+        if let Some(item) = self.checklist.get_mut(index) {
+            item.text = text;
+        }
+    }
+
+    pub fn toggle_item(&mut self, index: usize) {
+        if let Some(item) = self.checklist.get_mut(index) {
+            item.done = !item.done;
+            self.recompute_completion();
+        }
+    }
+
+    pub fn set_item_done(&mut self, index: usize, done: bool) {
+        if let Some(item) = self.checklist.get_mut(index) {
+            item.done = done;
+            self.recompute_completion();
+        }
+    }
+
+    pub fn progress(&self) -> (usize, usize) {
+        let done = self.checklist.iter().filter(|item| item.done).count();
+        (done, self.checklist.len())
+    }
+
+    pub fn all_items_done(&self) -> bool {
+        !self.checklist.is_empty() && self.checklist.iter().all(|item| item.done)
+    }
+
+    pub fn is_list(&self) -> bool {
+        !self.checklist.is_empty()
+    }
+
+    pub fn clear_checklist(&mut self) {
+        self.checklist.clear();
+    }
+
+    pub fn set_priority(&mut self, priority: Priority) {
+        self.priority = priority;
+    }
+
+    pub fn set_due(&mut self, date: Option<NaiveDate>, time: Option<NaiveTime>) {
+        self.due_date = date;
+        self.due_time = time;
+    }
+
+    pub fn clear_due(&mut self) {
+        self.due_date = None;
+        self.due_time = None;
+    }
+
+    pub fn due_datetime(&self) -> Option<DateTime<Local>> {
+        let date = self.due_date?;
+        let time = self
+            .due_time
+            .unwrap_or_else(|| NaiveTime::from_hms_opt(0, 0, 0).unwrap());
+        Local.from_local_datetime(&date.and_time(time)).single()
+    }
+
+    pub fn is_overdue(&self, now: DateTime<Local>) -> bool {
+        if self.completed {
+            return false;
+        }
+        let Some(due_date) = self.due_date else {
+            return false;
+        };
+        match self.due_time {
+            Some(_) => self.due_datetime().map_or(false, |due| due < now),
+            None => due_date < now.date_naive(),
+        }
+    }
+
+    pub fn next_due_date(&self) -> Option<NaiveDate> {
+        let date = self.due_date?;
+        Some(match self.recurrence? {
+            Recurrence::Daily => date + Days::new(1),
+            Recurrence::Weekly => date + Days::new(7),
+            Recurrence::Monthly => date.checked_add_months(Months::new(1))?,
+        })
+    }
+
+    pub fn set_estimated_minutes(&mut self, minutes: Option<u32>) {
+        self.estimated_minutes = minutes;
+    }
+
+    fn recompute_completion(&mut self) {
+        if self.checklist.is_empty() {
+            return;
+        }
+        if self.checklist.iter().all(|item| item.done) {
+            if !self.completed {
+                self.completed = true;
+                self.completed_at = Some(Local::now());
+            }
+        } else if self.completed {
+            self.completed = false;
+            self.completed_at = None;
+        }
+    }
+}
+
+impl Default for TaskData {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -226,7 +415,7 @@ impl fmt::Display for Echo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Local;
+    use chrono::{Local, NaiveDate, NaiveTime};
     use uuid::Uuid;
 
     #[test]
@@ -278,7 +467,6 @@ mod tests {
             Uuid::new_v4(),
             "Buy groceries".to_string(),
             EchoContent::TaskEcho(TaskData {
-                title: "Buy groceries".to_string(),
                 description: None,
                 due_date: None,
                 due_time: None,
@@ -369,5 +557,207 @@ mod tests {
             }
             _ => panic!("Wrong variant after deserialization"),
         }
+    }
+
+    #[test]
+    fn test_task_new_defaults() {
+        let task = TaskData::new();
+        assert!(!task.completed);
+        assert!(task.completed_at.is_none());
+        assert!(task.checklist.is_empty());
+        assert!(!task.is_list());
+        assert_eq!(task.priority, Priority::Medium);
+    }
+
+    #[test]
+    fn test_complete_uncomplete() {
+        let mut task = TaskData::new();
+        task.complete();
+        assert!(task.is_complete());
+        assert!(task.completed_at.is_some());
+
+        task.uncomplete();
+        assert!(!task.is_complete());
+        assert!(task.completed_at.is_none());
+    }
+
+    #[test]
+    fn test_checklist_autocomplete() {
+        let mut task = TaskData::new();
+        task.add_item("Milk".to_string());
+        task.add_item("Eggs".to_string());
+
+        assert!(task.is_list());
+        assert_eq!(task.progress(), (0, 2));
+        assert!(!task.completed);
+
+        task.toggle_item(0);
+        assert_eq!(task.progress(), (1, 2));
+        assert!(!task.completed);
+
+        task.toggle_item(1);
+        assert_eq!(task.progress(), (2, 2));
+        assert!(task.completed);
+        assert!(task.completed_at.is_some());
+
+        task.toggle_item(1);
+        assert!(!task.completed);
+        assert!(task.completed_at.is_none());
+    }
+
+    #[test]
+    fn test_empty_checklist_not_autocompleted() {
+        let mut task = TaskData::new();
+        assert!(!task.completed);
+
+        task.complete();
+        assert!(task.completed);
+    }
+
+    #[test]
+    fn test_remove_item_triggers_autocomplete() {
+        let mut task = TaskData::new();
+        task.add_item("A".to_string());
+        task.add_item("B".to_string());
+        task.set_item_done(0, true);
+        assert!(!task.completed);
+
+        task.remove_item(1);
+        assert!(task.completed);
+    }
+
+    #[test]
+    fn test_priority_ordering() {
+        assert!(Priority::Low < Priority::Medium);
+        assert!(Priority::Medium < Priority::High);
+        assert!(Priority::High < Priority::Critical);
+
+        let mut prios = vec![
+            Priority::High,
+            Priority::Low,
+            Priority::Critical,
+            Priority::Medium,
+        ];
+        prios.sort();
+        assert_eq!(
+            prios,
+            vec![
+                Priority::Low,
+                Priority::Medium,
+                Priority::High,
+                Priority::Critical,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_due_and_overdue() {
+        let now = Local::now();
+        let today = now.date_naive();
+
+        let mut task = TaskData::new();
+        assert!(!task.is_overdue(now));
+
+        task.set_due(Some(today - chrono::Days::new(1)), None);
+        assert!(task.is_overdue(now));
+
+        task.set_due(Some(today), None);
+        assert!(!task.is_overdue(now));
+
+        task.set_due(Some(today + chrono::Days::new(1)), None);
+        assert!(!task.is_overdue(now));
+
+        task.set_due(Some(today - chrono::Days::new(5)), None);
+        task.complete();
+        assert!(!task.is_overdue(now));
+    }
+
+    #[test]
+    fn test_due_datetime_combines() {
+        let mut task = TaskData::new();
+        task.set_due(
+            Some(NaiveDate::from_ymd_opt(2026, 6, 1).unwrap()),
+            Some(NaiveTime::from_hms_opt(9, 30, 0).unwrap()),
+        );
+        let dt = task.due_datetime().expect("should combine into a datetime");
+        assert_eq!(dt.date_naive(), NaiveDate::from_ymd_opt(2026, 6, 1).unwrap());
+    }
+
+    #[test]
+    fn test_recurrence_next_due() {
+        let mut task = TaskData::new();
+        task.set_due(Some(NaiveDate::from_ymd_opt(2026, 1, 31).unwrap()), None);
+
+        task.recurrence = Some(Recurrence::Daily);
+        assert_eq!(
+            task.next_due_date(),
+            Some(NaiveDate::from_ymd_opt(2026, 2, 1).unwrap())
+        );
+
+        task.recurrence = Some(Recurrence::Weekly);
+        assert_eq!(
+            task.next_due_date(),
+            Some(NaiveDate::from_ymd_opt(2026, 2, 7).unwrap())
+        );
+
+        task.recurrence = Some(Recurrence::Monthly);
+        assert_eq!(
+            task.next_due_date(),
+            Some(NaiveDate::from_ymd_opt(2026, 2, 28).unwrap())
+        );
+    }
+
+    #[test]
+    fn test_next_due_requires_due_and_recurrence() {
+        let mut task = TaskData::new();
+        task.recurrence = Some(Recurrence::Daily);
+        assert_eq!(task.next_due_date(), None);
+
+        let mut task2 = TaskData::new();
+        task2.set_due(Some(NaiveDate::from_ymd_opt(2026, 1, 1).unwrap()), None);
+        assert_eq!(task2.next_due_date(), None);
+    }
+
+    #[test]
+    fn test_spawn_next_occurrence() {
+        let mut echo = Echo::new_task(
+            NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+            Uuid::new_v4(),
+            "Weekly groceries".to_string(),
+        );
+        {
+            let task = echo.as_task_mut().unwrap();
+            task.set_due(Some(NaiveDate::from_ymd_opt(2026, 1, 1).unwrap()), None);
+            task.recurrence = Some(Recurrence::Weekly);
+            task.add_item("Milk".to_string());
+            task.set_item_done(0, true);
+        }
+        assert!(echo.as_task().unwrap().completed);
+
+        let next = echo.spawn_next_occurrence().expect("should spawn next");
+        assert_ne!(next.id, echo.id);
+
+        let next_task = next.as_task().unwrap();
+        assert_eq!(
+            next_task.due_date,
+            Some(NaiveDate::from_ymd_opt(2026, 1, 8).unwrap())
+        );
+        assert!(!next_task.completed);
+        assert!(next_task.completed_at.is_none());
+        assert!(!next_task.checklist[0].done);
+        assert_eq!(next.day, NaiveDate::from_ymd_opt(2026, 1, 8).unwrap());
+    }
+
+    #[test]
+    fn test_as_task_on_non_task() {
+        let echo = Echo::new(
+            Local::now().date_naive(),
+            Uuid::new_v4(),
+            "Plain".to_string(),
+            EchoContent::PlainEcho(PlainData {
+                markdown: "hi".to_string(),
+            }),
+        );
+        assert!(echo.as_task().is_none());
     }
 }
