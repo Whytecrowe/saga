@@ -26,13 +26,19 @@ pub struct PerformedExercise {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlannedSet {
+    pub target_reps: Option<u32>,
+    pub target_weight_kg: Option<f32>,
+    pub target_rest_seconds: Option<u32>,
+    pub is_warmup: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlannedExercise {
     pub name: String,
-    pub sets: u32,
-    pub target_reps: Option<u32>,
+    pub sets: Vec<PlannedSet>,
     pub notes: Option<String>,
     pub superset_group: Option<u8>,
-    pub is_warmup: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -107,6 +113,22 @@ pub struct Template {
     pub name: String,
     pub markdown_seed: String,
     pub section_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkoutProgram {
+    pub id: Uuid,
+    pub name: String,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkoutTemplate {
+    pub id: Uuid,
+    pub name: String,
+    pub program_id: Option<Uuid>,
+    pub sort_order: i32,
+    pub exercises: Vec<PlannedExercise>,
 }
 
 #[derive(Debug, Clone)]
@@ -374,6 +396,66 @@ impl Default for TaskData {
     }
 }
 
+impl PlannedExercise {
+    pub fn new(name: String) -> Self {
+        Self {
+            name,
+            sets: Vec::new(),
+            notes: None,
+            superset_group: None,
+        }
+    }
+
+    pub fn add_set(&mut self, set: PlannedSet) {
+        self.sets.push(set);
+    }
+
+    pub fn remove_set(&mut self, index: usize) {
+        if index < self.sets.len() {
+            self.sets.remove(index);
+        }
+    }
+}
+
+impl WorkoutProgram {
+    pub fn new(name: String, notes: Option<String>) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            name,
+            notes,
+        }
+    }
+}
+
+impl WorkoutTemplate {
+    pub fn new(name: String, program_id: Option<Uuid>, sort_order: i32) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            name,
+            program_id,
+            sort_order,
+            exercises: Vec::new(),
+        }
+    }
+
+    pub fn add_exercise(&mut self, exercise: PlannedExercise) {
+        self.exercises.push(exercise);
+    }
+
+    pub fn remove_exercise(&mut self, index: usize) {
+        if index < self.exercises.len() {
+            self.exercises.remove(index);
+        }
+    }
+
+    pub fn move_exercise(&mut self, from: usize, to: usize) {
+        if from < self.exercises.len() && to < self.exercises.len() {
+            let item = self.exercises.remove(from);
+            self.exercises.insert(to, item);
+        }
+    }
+}
+
 pub fn open_tasks(echoes: &[Echo]) -> Vec<&Echo> {
     echoes
         .iter()
@@ -541,6 +623,64 @@ mod tests {
 
         assert_eq!(echo.content_type_name(), "Workout Echo");
         println!("{}", echo);
+    }
+
+    #[test]
+    fn test_workout_program_new() {
+        let program = WorkoutProgram::new(
+            "Push/Pull/Legs".to_string(),
+            Some("6-day split".to_string()),
+        );
+        assert_eq!(program.name, "Push/Pull/Legs");
+        assert_eq!(program.notes.as_deref(), Some("6-day split"));
+    }
+
+    #[test]
+    fn test_planned_exercise_build() {
+        let mut bench = PlannedExercise::new("Bench Press".to_string());
+        assert!(bench.sets.is_empty());
+
+        bench.add_set(PlannedSet {
+            target_reps: Some(8),
+            target_weight_kg: Some(60.0),
+            target_rest_seconds: Some(120),
+            is_warmup: false,
+        });
+        bench.add_set(PlannedSet {
+            target_reps: Some(8),
+            target_weight_kg: Some(60.0),
+            target_rest_seconds: Some(120),
+            is_warmup: false,
+        });
+        assert_eq!(bench.sets.len(), 2);
+
+        bench.remove_set(5);
+        assert_eq!(bench.sets.len(), 2);
+
+        bench.remove_set(0);
+        assert_eq!(bench.sets.len(), 1);
+    }
+
+    #[test]
+    fn test_workout_template_build() {
+        let mut template = WorkoutTemplate::new("Push Day".to_string(), None, 0);
+        assert!(template.exercises.is_empty());
+        assert!(template.program_id.is_none());
+
+        template.add_exercise(PlannedExercise::new("Bench".to_string()));
+        template.add_exercise(PlannedExercise::new("Overhead Press".to_string()));
+        template.add_exercise(PlannedExercise::new("Dips".to_string()));
+        assert_eq!(template.exercises.len(), 3);
+
+        template.remove_exercise(10);
+        assert_eq!(template.exercises.len(), 3);
+
+        template.move_exercise(0, 2);
+        assert_eq!(template.exercises[0].name, "Overhead Press");
+        assert_eq!(template.exercises[2].name, "Bench");
+
+        template.remove_exercise(1);
+        assert_eq!(template.exercises.len(), 2);
     }
 
     #[test]
