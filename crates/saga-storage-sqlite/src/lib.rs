@@ -413,7 +413,7 @@ mod tests {
     fn test_workout_echo_roundtrip() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
         let section = make_section(&storage);
-        let echo = Echo::new(Local::now().date_naive(), section.id, "Push Day".to_string(), EchoContent::WorkoutEcho(WorkoutData { template_id: None, exercises: vec![PerformedExercise { name: "Bench Press".to_string(), sets: vec![SetEntry { reps: 8, weight_kg: Some(80.0), completed: true, rest_seconds: Some(90), is_warmup: false }] }], duration_minutes: Some(60), notes: Some("Felt strong.".to_string()), perceived_effort: Some(7) }));
+        let echo = Echo::new(Local::now().date_naive(), section.id, "Push Day".to_string(), EchoContent::WorkoutEcho(WorkoutData { template_id: None, exercises: vec![PerformedExercise { name: "Bench Press".to_string(), sets: vec![SetEntry { reps: 8, weight: Some(80.0), completed: true, rest_seconds: Some(90), is_warmup: false }] }], duration_minutes: Some(60), notes: Some("Felt strong.".to_string()), perceived_effort: Some(7) }));
         storage.save_echo(&echo).expect("Failed to save");
         let found = storage.get_echo(&echo.id).expect("Failed to get").unwrap();
         match found.content {

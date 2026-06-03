@@ -14,7 +14,7 @@ pub struct ChecklistItem {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SetEntry {
     pub reps: u32,
-    pub weight_kg: Option<f32>,
+    pub weight: Option<f32>,
     pub completed: bool,
     pub rest_seconds: Option<u32>,
     pub is_warmup: bool,
@@ -29,7 +29,7 @@ pub struct PerformedExercise {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlannedSet {
     pub target_reps: Option<u32>,
-    pub target_weight_kg: Option<f32>,
+    pub target_weight: Option<f32>,
     pub target_rest_seconds: Option<u32>,
     pub is_warmup: bool,
 }
@@ -544,9 +544,9 @@ impl WorkoutData {
                                 .map(|set| set.reps)
                                 .or(planned_set.target_reps)
                                 .unwrap_or(0),
-                            weight_kg: previous_set
-                                .and_then(|set| set.weight_kg)
-                                .or(planned_set.target_weight_kg),
+                            weight: previous_set
+                                .and_then(|set| set.weight)
+                                .or(planned_set.target_weight),
                             completed: false,
                             rest_seconds: previous_set
                                 .and_then(|set| set.rest_seconds)
@@ -604,7 +604,7 @@ impl WorkoutData {
 
     pub fn total_volume(&self) -> f32 {
         self.working_sets()
-            .map(|set| set.reps as f32 * set.weight_kg.unwrap_or(0.0))
+            .map(|set| set.reps as f32 * set.weight.unwrap_or(0.0))
             .sum()
     }
 
@@ -783,7 +783,7 @@ mod tests {
                     name: "Bench Press".to_string(),
                     sets: vec![SetEntry {
                         reps: 8,
-                        weight_kg: Some(80.0),
+                        weight: Some(80.0),
                         completed: true,
                         rest_seconds: Some(90),
                         is_warmup: false,
@@ -816,13 +816,13 @@ mod tests {
 
         bench.add_set(PlannedSet {
             target_reps: Some(8),
-            target_weight_kg: Some(60.0),
+            target_weight: Some(60.0),
             target_rest_seconds: Some(120),
             is_warmup: false,
         });
         bench.add_set(PlannedSet {
             target_reps: Some(8),
-            target_weight_kg: Some(60.0),
+            target_weight: Some(60.0),
             target_rest_seconds: Some(120),
             is_warmup: false,
         });
@@ -862,7 +862,7 @@ mod tests {
         for _ in 0..3 {
             bench.add_set(PlannedSet {
                 target_reps: Some(8),
-                target_weight_kg: Some(60.0),
+                target_weight: Some(60.0),
                 target_rest_seconds: Some(120),
                 is_warmup: false,
             });
@@ -899,7 +899,7 @@ mod tests {
         assert_eq!(bench.name, "Bench");
         assert_eq!(bench.sets.len(), 3);
         for set in &bench.sets {
-            assert_eq!(set.weight_kg, Some(60.0));
+            assert_eq!(set.weight, Some(60.0));
             assert_eq!(set.reps, 8);
             assert_eq!(set.rest_seconds, Some(120));
             assert!(!set.completed);
@@ -911,7 +911,7 @@ mod tests {
         let mut squat = PlannedExercise::new("Squat".to_string());
         squat.add_set(PlannedSet {
             target_reps: None,
-            target_weight_kg: None,
+            target_weight: None,
             target_rest_seconds: None,
             is_warmup: false,
         });
@@ -920,7 +920,7 @@ mod tests {
 
         let workout = WorkoutData::from_template(&template, &[]);
         let set = &workout.exercises[0].sets[0];
-        assert_eq!(set.weight_kg, None);
+        assert_eq!(set.weight, None);
         assert_eq!(set.reps, 0);
         assert_eq!(set.rest_seconds, None);
     }
@@ -940,7 +940,7 @@ mod tests {
                 0,
                 SetEntry {
                     reps: 5,
-                    weight_kg: Some(60.0),
+                    weight: Some(60.0),
                     completed: true,
                     rest_seconds: Some(90),
                     is_warmup: true,
@@ -950,7 +950,7 @@ mod tests {
                 0,
                 SetEntry {
                     reps: 5,
-                    weight_kg: Some(100.0),
+                    weight: Some(100.0),
                     completed: true,
                     rest_seconds: Some(120),
                     is_warmup: false,
@@ -960,7 +960,7 @@ mod tests {
                 0,
                 SetEntry {
                     reps: 5,
-                    weight_kg: Some(140.0),
+                    weight: Some(140.0),
                     completed: true,
                     rest_seconds: Some(180),
                     is_warmup: false,
@@ -973,9 +973,9 @@ mod tests {
         let workout = WorkoutData::from_template(&template, &history);
 
         let bench = &workout.exercises[0];
-        assert_eq!(bench.sets[0].weight_kg, Some(60.0));
-        assert_eq!(bench.sets[1].weight_kg, Some(100.0));
-        assert_eq!(bench.sets[2].weight_kg, Some(140.0));
+        assert_eq!(bench.sets[0].weight, Some(60.0));
+        assert_eq!(bench.sets[1].weight, Some(100.0));
+        assert_eq!(bench.sets[2].weight, Some(140.0));
         assert_eq!(bench.sets[1].reps, 5);
     }
 
@@ -993,7 +993,7 @@ mod tests {
                 0,
                 SetEntry {
                     reps: 3,
-                    weight_kg: Some(100.0),
+                    weight: Some(100.0),
                     completed: true,
                     rest_seconds: None,
                     is_warmup: false,
@@ -1006,9 +1006,9 @@ mod tests {
         let workout = WorkoutData::from_template(&template, &history);
 
         let bench = &workout.exercises[0];
-        assert_eq!(bench.sets[0].weight_kg, Some(100.0));
-        assert_eq!(bench.sets[1].weight_kg, Some(60.0));
-        assert_eq!(bench.sets[2].weight_kg, Some(60.0));
+        assert_eq!(bench.sets[0].weight, Some(100.0));
+        assert_eq!(bench.sets[1].weight, Some(60.0));
+        assert_eq!(bench.sets[2].weight, Some(60.0));
     }
 
     #[test]
@@ -1017,11 +1017,11 @@ mod tests {
         let mut workout = WorkoutData::from_template(&template, &[]);
 
         workout.add_exercise("Bonus Curls".to_string());
-        workout.exercises[0].sets[0].weight_kg = Some(999.0);
+        workout.exercises[0].sets[0].weight = Some(999.0);
 
         assert_eq!(template.exercises.len(), 1);
         assert_eq!(template.exercises[0].sets.len(), 3);
-        assert_eq!(template.exercises[0].sets[0].target_weight_kg, Some(60.0));
+        assert_eq!(template.exercises[0].sets[0].target_weight, Some(60.0));
     }
 
     #[test]
@@ -1032,7 +1032,7 @@ mod tests {
             0,
             SetEntry {
                 reps: 10,
-                weight_kg: Some(40.0),
+                weight: Some(40.0),
                 completed: true,
                 rest_seconds: None,
                 is_warmup: true,
@@ -1042,7 +1042,7 @@ mod tests {
             0,
             SetEntry {
                 reps: 8,
-                weight_kg: Some(100.0),
+                weight: Some(100.0),
                 completed: true,
                 rest_seconds: None,
                 is_warmup: false,
@@ -1052,7 +1052,7 @@ mod tests {
             0,
             SetEntry {
                 reps: 8,
-                weight_kg: Some(100.0),
+                weight: Some(100.0),
                 completed: false,
                 rest_seconds: None,
                 is_warmup: false,
