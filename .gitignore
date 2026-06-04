@@ -9,7 +9,7 @@
 *.ipr
 *.iws
 .idea_modules/
-.junie/
+.guidelines/
 
 # VS Code
 .vscode/

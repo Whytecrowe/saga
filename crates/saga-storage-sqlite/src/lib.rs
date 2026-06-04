@@ -1,6 +1,8 @@
 use chrono::NaiveDate;
 use rusqlite::Connection;
-use saga_core::model::{Echo, EchoContent, Section};
+use saga_core::model::{
+    Echo, EchoContent, PlannedExercise, Section, WorkoutProgram, WorkoutTemplate,
+};
 use std::path::Path;
 use std::str::FromStr;
 use thiserror::Error;
@@ -14,6 +16,10 @@ pub enum StorageError {
     EchoNotFound(Uuid),
     #[error("Section not found: {0}")]
     SectionNotFound(Uuid),
+    #[error("Program not found: {0}")]
+    ProgramNotFound(Uuid),
+    #[error("Template not found: {0}")]
+    TemplateNotFound(Uuid),
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 }
@@ -57,7 +63,22 @@ impl Storage {
                 FOREIGN KEY (section_id) REFERENCES sections(id)
             );
 
-            CREATE INDEX IF NOT EXISTS idx_echoes_day ON echoes(day);"
+            CREATE INDEX IF NOT EXISTS idx_echoes_day ON echoes(day);
+
+            CREATE TABLE IF NOT EXISTS workout_programs (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                notes TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS workout_templates (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                program_id TEXT,
+                sort_order INTEGER NOT NULL,
+                exercises_json TEXT NOT NULL DEFAULT '[]',
+                FOREIGN KEY (program_id) REFERENCES workout_programs(id)
+            );"
         )?;
         Ok(())
     }
@@ -186,7 +207,7 @@ impl Storage {
             "SELECT id, day, section_id, title, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at FROM echoes WHERE day = ?1 ORDER BY created_at",
         )?;
         let echoes = stmt.query_map(rusqlite::params![date.to_string()], map_echo_row)?;
-        echoes.map(|r| r.map_err(StorageError::Database)?.map_err(Into::into)).collect()
+        echoes.map(|r| r.map_err(StorageError::Database)?).collect()
     }
 
     pub fn get_all_echoes(&self) -> Result<Vec<Echo>> {
@@ -194,7 +215,7 @@ impl Storage {
             "SELECT id, day, section_id, title, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at FROM echoes ORDER BY day DESC, created_at DESC",
         )?;
         let echoes = stmt.query_map([], map_echo_row)?;
-        echoes.map(|r| r.map_err(StorageError::Database)?.map_err(Into::into)).collect()
+        echoes.map(|r| r.map_err(StorageError::Database)?).collect()
     }
 
     pub fn get_all_tasks(&self) -> Result<Vec<Echo>> {
@@ -202,7 +223,161 @@ impl Storage {
             "SELECT id, day, section_id, title, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at FROM echoes WHERE content_type = ?1 ORDER BY day DESC, created_at DESC",
         )?;
         let echoes = stmt.query_map(rusqlite::params!["Task Echo"], map_echo_row)?;
-        echoes.map(|r| r.map_err(StorageError::Database)?.map_err(Into::into)).collect()
+        echoes.map(|r| r.map_err(StorageError::Database)?).collect()
+    }
+
+    pub fn save_program(&self, program: &WorkoutProgram) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO workout_programs (id, name, notes) VALUES (?1, ?2, ?3)",
+            rusqlite::params![
+                program.id.to_string(),
+                program.name,
+                program.notes,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_program(&self, program_id: &Uuid) -> Result<Option<WorkoutProgram>> {
+        let result = self.conn.query_row(
+            "SELECT id, name, notes FROM workout_programs WHERE id = ?1",
+            rusqlite::params![program_id.to_string()],
+            |row| {
+                Ok(WorkoutProgram {
+                    id: parse_from_text(row, 0)?,
+                    name: row.get(1)?,
+                    notes: row.get(2)?,
+                })
+            },
+        );
+        match result {
+            Ok(program) => Ok(Some(program)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(StorageError::Database(e)),
+        }
+    }
+
+    pub fn get_all_programs(&self) -> Result<Vec<WorkoutProgram>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, notes FROM workout_programs ORDER BY name",
+        )?;
+        let programs = stmt.query_map([], |row| {
+            Ok(WorkoutProgram {
+                id: parse_from_text(row, 0)?,
+                name: row.get(1)?,
+                notes: row.get(2)?,
+            })
+        })?;
+        Ok(programs.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    pub fn update_program(&self, program: &WorkoutProgram) -> Result<()> {
+        let rows_affected = self.conn.execute(
+            "UPDATE workout_programs SET name = ?1, notes = ?2 WHERE id = ?3",
+            rusqlite::params![
+                program.name,
+                program.notes,
+                program.id.to_string(),
+            ],
+        )?;
+        if rows_affected == 0 {
+            return Err(StorageError::ProgramNotFound(program.id));
+        }
+        Ok(())
+    }
+
+    pub fn delete_program(&self, program_id: &Uuid) -> Result<()> {
+        let rows_affected = self.conn.execute(
+            "DELETE FROM workout_programs WHERE id = ?1",
+            rusqlite::params![program_id.to_string()],
+        )?;
+        if rows_affected == 0 {
+            return Err(StorageError::ProgramNotFound(*program_id));
+        }
+        Ok(())
+    }
+
+    pub fn save_template(&self, template: &WorkoutTemplate) -> Result<()> {
+        let exercises_json = serde_json::to_string(&template.exercises)?;
+        let program_id = template.program_id.map(|id| id.to_string());
+        self.conn.execute(
+            "INSERT INTO workout_templates (id, name, program_id, sort_order, exercises_json) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![
+                template.id.to_string(),
+                template.name,
+                program_id,
+                template.sort_order,
+                exercises_json,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_template(&self, template_id: &Uuid) -> Result<Option<WorkoutTemplate>> {
+        let result = self.conn.query_row(
+            "SELECT id, name, program_id, sort_order, exercises_json FROM workout_templates WHERE id = ?1",
+            rusqlite::params![template_id.to_string()],
+            map_template_row,
+        );
+        match result {
+            Ok(inner) => Ok(Some(inner?)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(StorageError::Database(e)),
+        }
+    }
+
+    pub fn get_templates_for_program(&self, program_id: &Uuid) -> Result<Vec<WorkoutTemplate>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, program_id, sort_order, exercises_json FROM workout_templates WHERE program_id = ?1 ORDER BY sort_order",
+        )?;
+        let templates = stmt.query_map(rusqlite::params![program_id.to_string()], map_template_row)?;
+        templates.map(|r| r.map_err(StorageError::Database)?).collect()
+    }
+
+    pub fn update_template(&self, template: &WorkoutTemplate) -> Result<()> {
+        let exercises_json = serde_json::to_string(&template.exercises)?;
+        let program_id = template.program_id.map(|id| id.to_string());
+        let rows_affected = self.conn.execute(
+            "UPDATE workout_templates SET name = ?1, program_id = ?2, sort_order = ?3, exercises_json = ?4 WHERE id = ?5",
+            rusqlite::params![
+                template.name,
+                program_id,
+                template.sort_order,
+                exercises_json,
+                template.id.to_string(),
+            ],
+        )?;
+        if rows_affected == 0 {
+            return Err(StorageError::TemplateNotFound(template.id));
+        }
+        Ok(())
+    }
+
+    pub fn delete_template(&self, template_id: &Uuid) -> Result<()> {
+        let rows_affected = self.conn.execute(
+            "DELETE FROM workout_templates WHERE id = ?1",
+            rusqlite::params![template_id.to_string()],
+        )?;
+        if rows_affected == 0 {
+            return Err(StorageError::TemplateNotFound(*template_id));
+        }
+        Ok(())
+    }
+
+    pub fn get_all_workouts(&self) -> Result<Vec<Echo>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, day, section_id, title, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at FROM echoes WHERE content_type = ?1 ORDER BY day DESC, created_at DESC",
+        )?;
+        let echoes = stmt.query_map(rusqlite::params!["Workout Echo"], map_echo_row)?;
+        echoes.map(|r| r.map_err(StorageError::Database)?).collect()
+    }
+
+    pub fn get_recent_workouts(&self, limit: usize) -> Result<Vec<Echo>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, day, section_id, title, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at FROM echoes WHERE content_type = ?1 ORDER BY day DESC, created_at DESC LIMIT ?2",
+        )?;
+        let echoes = stmt.query_map(rusqlite::params!["Workout Echo", limit as i64], map_echo_row)?;
+        echoes.map(|r| r.map_err(StorageError::Database)?).collect()
     }
 }
 
@@ -248,6 +423,34 @@ fn map_echo_row(row: &rusqlite::Row) -> rusqlite::Result<Result<Echo>> {
     }))
 }
 
+fn map_template_row(row: &rusqlite::Row) -> rusqlite::Result<Result<WorkoutTemplate>> {
+    let id: Uuid = parse_from_text(row, 0)?;
+    let name: String = row.get(1)?;
+    let program_id_str: Option<String> = row.get(2)?;
+    let sort_order: i32 = row.get(3)?;
+    let exercises_json: String = row.get(4)?;
+
+    let exercises: Vec<PlannedExercise> = match serde_json::from_str(&exercises_json) {
+        Ok(e) => e,
+        Err(e) => return Ok(Err(StorageError::Json(e))),
+    };
+    let program_id = match program_id_str {
+        Some(s) => match s.parse::<Uuid>() {
+            Ok(id) => Some(id),
+            Err(e) => return Ok(Err(StorageError::Database(rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(e))))),
+        },
+        None => None,
+    };
+
+    Ok(Ok(WorkoutTemplate {
+        id,
+        name,
+        program_id,
+        sort_order,
+        exercises,
+    }))
+}
+
 fn parse_from_text<T>(row: &rusqlite::Row, idx: usize) -> rusqlite::Result<T>
 where
     T: FromStr,
@@ -263,8 +466,8 @@ mod tests {
     use super::*;
     use chrono::Local;
     use saga_core::model::{
-        ChecklistItem, EchoContent, MeditationData, PerformedExercise, PlainData, Priority,
-        SetEntry, TaskData, WorkoutData,
+        ChecklistItem, EchoContent, MeditationData, PerformedExercise, PlainData, PlannedExercise,
+        PlannedSet, Priority, SetEntry, TaskData, WorkoutData, WorkoutProgram, WorkoutTemplate,
     };
     use uuid::Uuid;
 
@@ -413,7 +616,7 @@ mod tests {
     fn test_workout_echo_roundtrip() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
         let section = make_section(&storage);
-        let echo = Echo::new(Local::now().date_naive(), section.id, "Push Day".to_string(), EchoContent::WorkoutEcho(WorkoutData { template_id: None, exercises: vec![PerformedExercise { name: "Bench Press".to_string(), sets: vec![SetEntry { reps: 8, weight_kg: Some(80.0), completed: true, rest_seconds: Some(90), is_warmup: false }] }], duration_minutes: Some(60), notes: Some("Felt strong.".to_string()), perceived_effort: Some(7) }));
+        let echo = Echo::new(Local::now().date_naive(), section.id, "Push Day".to_string(), EchoContent::WorkoutEcho(WorkoutData { template_id: None, exercises: vec![PerformedExercise { name: "Bench Press".to_string(), sets: vec![SetEntry { reps: 8, weight: Some(80.0), completed: true, rest_seconds: Some(90), is_warmup: false }] }], duration_minutes: Some(60), notes: Some("Felt strong.".to_string()), perceived_effort: Some(7) }));
         storage.save_echo(&echo).expect("Failed to save");
         let found = storage.get_echo(&echo.id).expect("Failed to get").unwrap();
         match found.content {
@@ -461,5 +664,130 @@ mod tests {
         let tasks = storage.get_all_tasks().expect("Failed to get tasks");
         assert_eq!(tasks.len(), 2);
         assert!(tasks.iter().all(|e| e.content_type_name() == "Task Echo"));
+    }
+
+    fn sample_template(program_id: Option<Uuid>, sort_order: i32, name: &str) -> WorkoutTemplate {
+        let mut bench = PlannedExercise::new("Bench".to_string());
+        bench.add_set(PlannedSet {
+            target_reps: Some(8),
+            target_weight: Some(60.0),
+            target_rest_seconds: Some(120),
+            is_warmup: false,
+        });
+        let mut template = WorkoutTemplate::new(name.to_string(), program_id, sort_order);
+        template.add_exercise(bench);
+        template
+    }
+
+    #[test]
+    fn test_program_crud() {
+        let storage = Storage::new(":memory:").expect("Failed to create storage");
+        let mut program =
+            WorkoutProgram::new("Push/Pull/Legs".to_string(), Some("6-day".to_string()));
+
+        storage.save_program(&program).expect("Failed to save program");
+
+        let found = storage.get_program(&program.id).expect("Query failed").unwrap();
+        assert_eq!(found.name, "Push/Pull/Legs");
+        assert_eq!(found.notes.as_deref(), Some("6-day"));
+
+        program.name = "PPL".to_string();
+        program.notes = None;
+        storage.update_program(&program).expect("Failed to update");
+        let updated = storage.get_program(&program.id).expect("Query failed").unwrap();
+        assert_eq!(updated.name, "PPL");
+        assert!(updated.notes.is_none());
+
+        storage.delete_program(&program.id).expect("Failed to delete");
+        assert!(storage.get_program(&program.id).expect("Query failed").is_none());
+    }
+
+    #[test]
+    fn test_program_not_found() {
+        let storage = Storage::new(":memory:").expect("Failed to create storage");
+        let program = WorkoutProgram::new("Ghost".to_string(), None);
+        let result = storage.update_program(&program);
+        assert!(matches!(result, Err(StorageError::ProgramNotFound(_))));
+    }
+
+    #[test]
+    fn test_template_roundtrip() {
+        let storage = Storage::new(":memory:").expect("Failed to create storage");
+        let template = sample_template(None, 3, "Push Day");
+        storage.save_template(&template).expect("Failed to save template");
+
+        let found = storage.get_template(&template.id).expect("Query failed").unwrap();
+        assert_eq!(found.name, "Push Day");
+        assert_eq!(found.sort_order, 3);
+        assert!(found.program_id.is_none());
+        assert_eq!(found.exercises.len(), 1);
+        assert_eq!(found.exercises[0].name, "Bench");
+        assert_eq!(found.exercises[0].sets.len(), 1);
+        assert_eq!(found.exercises[0].sets[0].target_weight, Some(60.0));
+        assert_eq!(found.exercises[0].sets[0].target_rest_seconds, Some(120));
+    }
+
+    #[test]
+    fn test_get_templates_for_program() {
+        let storage = Storage::new(":memory:").expect("Failed to create storage");
+        let program = WorkoutProgram::new("PPL".to_string(), None);
+        storage.save_program(&program).expect("Failed to save program");
+        let other = WorkoutProgram::new("Other".to_string(), None);
+        storage.save_program(&other).expect("Failed to save other");
+
+        storage
+            .save_template(&sample_template(Some(program.id), 2, "Legs"))
+            .expect("Failed to save");
+        storage
+            .save_template(&sample_template(Some(program.id), 0, "Push"))
+            .expect("Failed to save");
+        storage
+            .save_template(&sample_template(Some(program.id), 1, "Pull"))
+            .expect("Failed to save");
+        storage
+            .save_template(&sample_template(Some(other.id), 0, "Other Day"))
+            .expect("Failed to save");
+
+        let days = storage
+            .get_templates_for_program(&program.id)
+            .expect("Query failed");
+        assert_eq!(days.len(), 3);
+        assert_eq!(days[0].name, "Push");
+        assert_eq!(days[1].name, "Pull");
+        assert_eq!(days[2].name, "Legs");
+    }
+
+    #[test]
+    fn test_get_all_and_recent_workouts() {
+        let storage = Storage::new(":memory:").expect("Failed to create storage");
+        let section = make_section(&storage);
+        let today = Local::now().date_naive();
+
+        let plain = Echo::new(
+            today,
+            section.id,
+            "Note".to_string(),
+            EchoContent::PlainEcho(PlainData {
+                markdown: "hi".to_string(),
+            }),
+        );
+        storage.save_echo(&plain).expect("Failed to save plain");
+
+        let w1 = Echo::new_workout(today - chrono::Days::new(2), section.id, "Old".to_string());
+        let w2 = Echo::new_workout(today - chrono::Days::new(1), section.id, "Mid".to_string());
+        let w3 = Echo::new_workout(today, section.id, "New".to_string());
+        storage.save_echo(&w1).expect("Failed to save w1");
+        storage.save_echo(&w2).expect("Failed to save w2");
+        storage.save_echo(&w3).expect("Failed to save w3");
+
+        let all = storage.get_all_workouts().expect("Query failed");
+        assert_eq!(all.len(), 3);
+        assert!(all.iter().all(|e| e.content_type_name() == "Workout Echo"));
+        assert_eq!(all[0].title, "New");
+
+        let recent = storage.get_recent_workouts(2).expect("Query failed");
+        assert_eq!(recent.len(), 2);
+        assert_eq!(recent[0].title, "New");
+        assert_eq!(recent[1].title, "Mid");
     }
 }
