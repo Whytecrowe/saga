@@ -379,6 +379,14 @@ impl Storage {
         let echoes = stmt.query_map(rusqlite::params!["Workout Echo", limit as i64], map_echo_row)?;
         echoes.map(|r| r.map_err(StorageError::Database)?).collect()
     }
+
+    pub fn get_all_meditations(&self) -> Result<Vec<Echo>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, day, section_id, title, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at FROM echoes WHERE content_type = ?1 ORDER BY day DESC, created_at DESC",
+        )?;
+        let echoes = stmt.query_map(rusqlite::params!["Meditation Echo"], map_echo_row)?;
+        echoes.map(|r| r.map_err(StorageError::Database)?).collect()
+    }
 }
 
 fn map_echo_row(row: &rusqlite::Row) -> rusqlite::Result<Result<Echo>> {
@@ -789,5 +797,33 @@ mod tests {
         assert_eq!(recent.len(), 2);
         assert_eq!(recent[0].title, "New");
         assert_eq!(recent[1].title, "Mid");
+    }
+
+    #[test]
+    fn test_get_all_meditations() {
+        let storage = Storage::new(":memory:").expect("Failed to create storage");
+        let section = make_section(&storage);
+        let day = Local::now().date_naive();
+
+        let plain = Echo::new(
+            day,
+            section.id,
+            "Note".to_string(),
+            EchoContent::PlainEcho(PlainData {
+                markdown: "hi".to_string(),
+            }),
+        );
+        let m1 = Echo::new_meditation(day, section.id, "Sit one".to_string(), 20);
+        let m2 = Echo::new_meditation(day, section.id, "Sit two".to_string(), 10);
+
+        storage.save_echo(&plain).expect("Failed to save plain");
+        storage.save_echo(&m1).expect("Failed to save m1");
+        storage.save_echo(&m2).expect("Failed to save m2");
+
+        let meditations = storage.get_all_meditations().expect("Failed to get meditations");
+        assert_eq!(meditations.len(), 2);
+        assert!(meditations
+            .iter()
+            .all(|e| e.content_type_name() == "Meditation Echo"));
     }
 }
