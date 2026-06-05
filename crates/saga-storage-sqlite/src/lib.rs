@@ -2,6 +2,7 @@ use chrono::NaiveDate;
 use rusqlite::Connection;
 use saga_core::model::{
     Echo, EchoContent, PlannedExercise, Section, WorkoutProgram, WorkoutTemplate,
+    ECHO_TYPE_MEDITATION, ECHO_TYPE_TASK, ECHO_TYPE_WORKOUT,
 };
 use std::path::Path;
 use std::str::FromStr;
@@ -238,7 +239,7 @@ impl Storage {
         let mut stmt = self.conn.prepare(
             "SELECT id, day, section_id, title, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at FROM echoes WHERE content_type = ?1 ORDER BY day DESC, created_at DESC",
         )?;
-        let echoes = stmt.query_map(rusqlite::params!["Task Echo"], map_echo_row)?;
+        let echoes = stmt.query_map(rusqlite::params![ECHO_TYPE_TASK], map_echo_row)?;
         echoes.map(|r| r.map_err(StorageError::Database)?).collect()
     }
 
@@ -379,7 +380,7 @@ impl Storage {
         let mut stmt = self.conn.prepare(
             "SELECT id, day, section_id, title, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at FROM echoes WHERE content_type = ?1 ORDER BY day DESC, created_at DESC",
         )?;
-        let echoes = stmt.query_map(rusqlite::params!["Workout Echo"], map_echo_row)?;
+        let echoes = stmt.query_map(rusqlite::params![ECHO_TYPE_WORKOUT], map_echo_row)?;
         echoes.map(|r| r.map_err(StorageError::Database)?).collect()
     }
 
@@ -388,7 +389,7 @@ impl Storage {
             "SELECT id, day, section_id, title, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at FROM echoes WHERE content_type = ?1 ORDER BY day DESC, created_at DESC LIMIT ?2",
         )?;
         let echoes = stmt.query_map(
-            rusqlite::params!["Workout Echo", limit as i64],
+            rusqlite::params![ECHO_TYPE_WORKOUT, limit as i64],
             map_echo_row,
         )?;
         echoes.map(|r| r.map_err(StorageError::Database)?).collect()
@@ -398,7 +399,7 @@ impl Storage {
         let mut stmt = self.conn.prepare(
             "SELECT id, day, section_id, title, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at FROM echoes WHERE content_type = ?1 ORDER BY day DESC, created_at DESC",
         )?;
-        let echoes = stmt.query_map(rusqlite::params!["Meditation Echo"], map_echo_row)?;
+        let echoes = stmt.query_map(rusqlite::params![ECHO_TYPE_MEDITATION], map_echo_row)?;
         echoes.map(|r| r.map_err(StorageError::Database)?).collect()
     }
 }

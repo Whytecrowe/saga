@@ -92,6 +92,11 @@ pub struct WorkoutData {
     pub perceived_effort: Option<u8>,
 }
 
+pub const ECHO_TYPE_PLAIN: &str = "Echo";
+pub const ECHO_TYPE_MEDITATION: &str = "Meditation Echo";
+pub const ECHO_TYPE_TASK: &str = "Task Echo";
+pub const ECHO_TYPE_WORKOUT: &str = "Workout Echo";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum EchoContent {
@@ -197,10 +202,10 @@ impl Echo {
 
     pub fn content_type_name(&self) -> &str {
         match &self.content {
-            EchoContent::PlainEcho(_) => "Echo",
-            EchoContent::MeditationEcho(_) => "Meditation Echo",
-            EchoContent::TaskEcho(_) => "Task Echo",
-            EchoContent::WorkoutEcho(_) => "Workout Echo",
+            EchoContent::PlainEcho(_) => ECHO_TYPE_PLAIN,
+            EchoContent::MeditationEcho(_) => ECHO_TYPE_MEDITATION,
+            EchoContent::TaskEcho(_) => ECHO_TYPE_TASK,
+            EchoContent::WorkoutEcho(_) => ECHO_TYPE_WORKOUT,
         }
     }
 
