@@ -29,6 +29,7 @@ pub type Result<T> = std::result::Result<T, StorageError>;
 pub struct Storage {
     conn: Connection,
 }
+
 impl Storage {
     pub fn new<P: AsRef<Path>>(db_path: P) -> Result<Self> {
         let conn = Connection::open(db_path)?;
@@ -78,10 +79,11 @@ impl Storage {
                 sort_order INTEGER NOT NULL,
                 exercises_json TEXT NOT NULL DEFAULT '[]',
                 FOREIGN KEY (program_id) REFERENCES workout_programs(id)
-            );"
+            );",
         )?;
         Ok(())
     }
+
     pub fn save_section(&self, section: &Section) -> Result<()> {
         self.conn.execute(
             "INSERT INTO sections (id, name, sort_order) VALUES (?1, ?2, ?3)",
@@ -102,6 +104,7 @@ impl Storage {
                 })
             },
         );
+
         match result {
             Ok(section) => Ok(Some(section)),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
@@ -110,7 +113,10 @@ impl Storage {
     }
 
     pub fn get_all_sections(&self) -> Result<Vec<Section>> {
-        let mut stmt = self.conn.prepare("SELECT id, name, sort_order FROM sections ORDER BY sort_order")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, name, sort_order FROM sections ORDER BY sort_order")?;
+
         let sections = stmt.query_map([], |row| {
             Ok(Section {
                 id: parse_from_text(row, 0)?,
@@ -126,7 +132,9 @@ impl Storage {
             "UPDATE sections SET name = ?1, sort_order = ?2 WHERE id = ?3",
             rusqlite::params![section.name, section.sort_order, section.id.to_string()],
         )?;
-        if rows_affected == 0 { return Err(StorageError::SectionNotFound(section.id)); }
+        if rows_affected == 0 {
+            return Err(StorageError::SectionNotFound(section.id));
+        }
         Ok(())
     }
 
@@ -135,7 +143,9 @@ impl Storage {
             "DELETE FROM sections WHERE id = ?1",
             rusqlite::params![section_id.to_string()],
         )?;
-        if rows_affected == 0 { return Err(StorageError::SectionNotFound(*section_id)); }
+        if rows_affected == 0 {
+            return Err(StorageError::SectionNotFound(*section_id));
+        }
         Ok(())
     }
 
@@ -144,6 +154,7 @@ impl Storage {
         let max = sections.iter().map(|s| s.sort_order).max().unwrap_or(-1);
         Ok(max + 1)
     }
+
     pub fn save_echo(&self, echo: &Echo) -> Result<()> {
         let content_type = echo.content_type_name().to_string();
         let content_json = serde_json::to_string(&echo.content)?;
@@ -190,7 +201,10 @@ impl Storage {
                 echo.updated_at.to_rfc3339(), echo.id.to_string(),
             ],
         )?;
-        if rows_affected == 0 { return Err(StorageError::EchoNotFound(echo.id)); }
+
+        if rows_affected == 0 {
+            return Err(StorageError::EchoNotFound(echo.id));
+        }
         Ok(())
     }
 
@@ -199,7 +213,9 @@ impl Storage {
             "DELETE FROM echoes WHERE id = ?1",
             rusqlite::params![echo_id.to_string()],
         )?;
-        if rows_affected == 0 { return Err(StorageError::EchoNotFound(*echo_id)); }
+        if rows_affected == 0 {
+            return Err(StorageError::EchoNotFound(*echo_id));
+        }
         Ok(())
     }
     pub fn get_echoes_for_day(&self, date: NaiveDate) -> Result<Vec<Echo>> {
@@ -229,11 +245,7 @@ impl Storage {
     pub fn save_program(&self, program: &WorkoutProgram) -> Result<()> {
         self.conn.execute(
             "INSERT INTO workout_programs (id, name, notes) VALUES (?1, ?2, ?3)",
-            rusqlite::params![
-                program.id.to_string(),
-                program.name,
-                program.notes,
-            ],
+            rusqlite::params![program.id.to_string(), program.name, program.notes,],
         )?;
         Ok(())
     }
@@ -258,9 +270,9 @@ impl Storage {
     }
 
     pub fn get_all_programs(&self) -> Result<Vec<WorkoutProgram>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, name, notes FROM workout_programs ORDER BY name",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, name, notes FROM workout_programs ORDER BY name")?;
         let programs = stmt.query_map([], |row| {
             Ok(WorkoutProgram {
                 id: parse_from_text(row, 0)?,
@@ -274,11 +286,7 @@ impl Storage {
     pub fn update_program(&self, program: &WorkoutProgram) -> Result<()> {
         let rows_affected = self.conn.execute(
             "UPDATE workout_programs SET name = ?1, notes = ?2 WHERE id = ?3",
-            rusqlite::params![
-                program.name,
-                program.notes,
-                program.id.to_string(),
-            ],
+            rusqlite::params![program.name, program.notes, program.id.to_string(),],
         )?;
         if rows_affected == 0 {
             return Err(StorageError::ProgramNotFound(program.id));
@@ -330,8 +338,11 @@ impl Storage {
         let mut stmt = self.conn.prepare(
             "SELECT id, name, program_id, sort_order, exercises_json FROM workout_templates WHERE program_id = ?1 ORDER BY sort_order",
         )?;
-        let templates = stmt.query_map(rusqlite::params![program_id.to_string()], map_template_row)?;
-        templates.map(|r| r.map_err(StorageError::Database)?).collect()
+        let templates =
+            stmt.query_map(rusqlite::params![program_id.to_string()], map_template_row)?;
+        templates
+            .map(|r| r.map_err(StorageError::Database)?)
+            .collect()
     }
 
     pub fn update_template(&self, template: &WorkoutTemplate) -> Result<()> {
@@ -376,7 +387,10 @@ impl Storage {
         let mut stmt = self.conn.prepare(
             "SELECT id, day, section_id, title, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at FROM echoes WHERE content_type = ?1 ORDER BY day DESC, created_at DESC LIMIT ?2",
         )?;
-        let echoes = stmt.query_map(rusqlite::params!["Workout Echo", limit as i64], map_echo_row)?;
+        let echoes = stmt.query_map(
+            rusqlite::params!["Workout Echo", limit as i64],
+            map_echo_row,
+        )?;
         echoes.map(|r| r.map_err(StorageError::Database)?).collect()
     }
 
@@ -414,13 +428,25 @@ fn map_echo_row(row: &rusqlite::Row) -> rusqlite::Result<Result<Echo>> {
     let linked_echo_id = match linked_echo_id_str {
         Some(s) => match s.parse::<Uuid>() {
             Ok(id) => Some(id),
-            Err(e) => return Ok(Err(StorageError::Database(rusqlite::Error::FromSqlConversionFailure(9, rusqlite::types::Type::Text, Box::new(e))))),
+            Err(e) => {
+                return Ok(Err(StorageError::Database(
+                    rusqlite::Error::FromSqlConversionFailure(
+                        9,
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    ),
+                )));
+            }
         },
         None => None,
     };
 
     Ok(Ok(Echo {
-        id, day, section_id, title, content,
+        id,
+        day,
+        section_id,
+        title,
+        content,
         mood: mood.map(|v| v as u8),
         energy: energy.map(|v| v as u8),
         pinned: pinned != 0,
@@ -445,7 +471,15 @@ fn map_template_row(row: &rusqlite::Row) -> rusqlite::Result<Result<WorkoutTempl
     let program_id = match program_id_str {
         Some(s) => match s.parse::<Uuid>() {
             Ok(id) => Some(id),
-            Err(e) => return Ok(Err(StorageError::Database(rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(e))))),
+            Err(e) => {
+                return Ok(Err(StorageError::Database(
+                    rusqlite::Error::FromSqlConversionFailure(
+                        2,
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    ),
+                )));
+            }
         },
         None => None,
     };
@@ -480,23 +514,41 @@ mod tests {
     use uuid::Uuid;
 
     fn make_section(storage: &Storage) -> Section {
-        let section = Section { id: Uuid::new_v4(), name: "Test Section".to_string(), sort_order: 0 };
-        storage.save_section(&section).expect("Failed to save section");
+        let section = Section {
+            id: Uuid::new_v4(),
+            name: "Test Section".to_string(),
+            sort_order: 0,
+        };
+        storage
+            .save_section(&section)
+            .expect("Failed to save section");
         section
     }
 
     #[test]
     fn test_save_section() {
         let storage = Storage::new(":memory:").expect("Memory storage creation failed!");
-        let section = Section { id: Uuid::new_v4(), name: "Meditation".to_string(), sort_order: 0 };
-        storage.save_section(&section).expect("Creating Section failed!");
+        let section = Section {
+            id: Uuid::new_v4(),
+            name: "Meditation".to_string(),
+            sort_order: 0,
+        };
+        storage
+            .save_section(&section)
+            .expect("Creating Section failed!");
     }
 
     #[test]
     fn test_get_section() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
-        let section = Section { id: Uuid::new_v4(), name: "Meditation".to_string(), sort_order: 0 };
-        storage.save_section(&section).expect("Failed to create section");
+        let section = Section {
+            id: Uuid::new_v4(),
+            name: "Meditation".to_string(),
+            sort_order: 0,
+        };
+        storage
+            .save_section(&section)
+            .expect("Failed to create section");
         let found = storage.get_section(&section.id).expect("Query failed");
         assert!(found.is_some());
         assert_eq!(found.unwrap().name, "Meditation");
@@ -507,10 +559,22 @@ mod tests {
     #[test]
     fn test_get_all_sections() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
-        let s1 = Section { id: Uuid::new_v4(), name: "Meditation".to_string(), sort_order: 0 };
-        let s2 = Section { id: Uuid::new_v4(), name: "Work".to_string(), sort_order: 1 };
-        storage.save_section(&s1).expect("Failed to create section 1");
-        storage.save_section(&s2).expect("Failed to create section 2");
+        let s1 = Section {
+            id: Uuid::new_v4(),
+            name: "Meditation".to_string(),
+            sort_order: 0,
+        };
+        let s2 = Section {
+            id: Uuid::new_v4(),
+            name: "Work".to_string(),
+            sort_order: 1,
+        };
+        storage
+            .save_section(&s1)
+            .expect("Failed to create section 1");
+        storage
+            .save_section(&s2)
+            .expect("Failed to create section 2");
         let sections = storage.get_all_sections().expect("Failed to get sections");
         assert_eq!(sections.len(), 2);
         assert_eq!(sections[0].name, "Meditation");
@@ -520,12 +584,19 @@ mod tests {
     #[test]
     fn test_update_section() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
-        let mut section = Section { id: Uuid::new_v4(), name: "Meditation".to_string(), sort_order: 0 };
+        let mut section = Section {
+            id: Uuid::new_v4(),
+            name: "Meditation".to_string(),
+            sort_order: 0,
+        };
         storage.save_section(&section).expect("Failed to create");
         section.name = "Mindfulness".to_string();
         section.sort_order = 5;
         storage.update_section(&section).expect("Failed to update");
-        let updated = storage.get_section(&section.id).expect("Query failed").unwrap();
+        let updated = storage
+            .get_section(&section.id)
+            .expect("Query failed")
+            .unwrap();
         assert_eq!(updated.name, "Mindfulness");
         assert_eq!(updated.sort_order, 5);
     }
@@ -533,9 +604,15 @@ mod tests {
     #[test]
     fn test_delete_section() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
-        let section = Section { id: Uuid::new_v4(), name: "Meditation".to_string(), sort_order: 0 };
+        let section = Section {
+            id: Uuid::new_v4(),
+            name: "Meditation".to_string(),
+            sort_order: 0,
+        };
         storage.save_section(&section).expect("Failed to create");
-        storage.delete_section(&section.id).expect("Failed to delete");
+        storage
+            .delete_section(&section.id)
+            .expect("Failed to delete");
         let result = storage.get_section(&section.id).expect("Query failed");
         assert!(result.is_none());
     }
@@ -543,9 +620,19 @@ mod tests {
     fn test_create_plain_echo() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
         let section = make_section(&storage);
-        let echo = Echo::new(Local::now().date_naive(), section.id, "Echo title".to_string(), EchoContent::PlainEcho(PlainData { markdown: "Hello world".to_string() }));
+        let echo = Echo::new(
+            Local::now().date_naive(),
+            section.id,
+            "Echo title".to_string(),
+            EchoContent::PlainEcho(PlainData {
+                markdown: "Hello world".to_string(),
+            }),
+        );
         storage.save_echo(&echo).expect("Failed to save echo");
-        let found = storage.get_echo(&echo.id).expect("Failed to get echo").unwrap();
+        let found = storage
+            .get_echo(&echo.id)
+            .expect("Failed to get echo")
+            .unwrap();
         assert_eq!(found.id, echo.id);
         match found.content {
             EchoContent::PlainEcho(data) => assert_eq!(data.markdown, "Hello world"),
@@ -557,11 +644,23 @@ mod tests {
     fn test_update_echo() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
         let section = make_section(&storage);
-        let mut echo = Echo::new(Local::now().date_naive(), section.id, "Echo title".to_string(), EchoContent::PlainEcho(PlainData { markdown: "Original".to_string() }));
+        let mut echo = Echo::new(
+            Local::now().date_naive(),
+            section.id,
+            "Echo title".to_string(),
+            EchoContent::PlainEcho(PlainData {
+                markdown: "Original".to_string(),
+            }),
+        );
         storage.save_echo(&echo).expect("Failed to save echo");
-        echo.update_content(EchoContent::PlainEcho(PlainData { markdown: "Updated".to_string() }));
+        echo.update_content(EchoContent::PlainEcho(PlainData {
+            markdown: "Updated".to_string(),
+        }));
         storage.update_echo(&echo).expect("Failed to update");
-        let found = storage.get_echo(&echo.id).expect("Failed to get echo").unwrap();
+        let found = storage
+            .get_echo(&echo.id)
+            .expect("Failed to get echo")
+            .unwrap();
         match found.content {
             EchoContent::PlainEcho(data) => assert_eq!(data.markdown, "Updated"),
             _ => panic!("Wrong content type"),
@@ -574,15 +673,40 @@ mod tests {
         let section = make_section(&storage);
         let today = Local::now().date_naive();
         let yesterday = today - chrono::Days::new(1);
-        let echo1 = Echo::new(today, section.id, "Title 1".to_string(), EchoContent::PlainEcho(PlainData { markdown: "Today first".to_string() }));
-        let echo2 = Echo::new(today, section.id, "Title 2".to_string(), EchoContent::PlainEcho(PlainData { markdown: "Today second".to_string() }));
-        let echo3 = Echo::new(yesterday, section.id, "Title 3".to_string(), EchoContent::PlainEcho(PlainData { markdown: "Yesterday".to_string() }));
+        let echo1 = Echo::new(
+            today,
+            section.id,
+            "Title 1".to_string(),
+            EchoContent::PlainEcho(PlainData {
+                markdown: "Today first".to_string(),
+            }),
+        );
+        let echo2 = Echo::new(
+            today,
+            section.id,
+            "Title 2".to_string(),
+            EchoContent::PlainEcho(PlainData {
+                markdown: "Today second".to_string(),
+            }),
+        );
+        let echo3 = Echo::new(
+            yesterday,
+            section.id,
+            "Title 3".to_string(),
+            EchoContent::PlainEcho(PlainData {
+                markdown: "Yesterday".to_string(),
+            }),
+        );
         storage.save_echo(&echo1).expect("Failed to save echo1");
         storage.save_echo(&echo2).expect("Failed to save echo2");
         storage.save_echo(&echo3).expect("Failed to save echo3");
-        let today_echoes = storage.get_echoes_for_day(today).expect("Failed to get echoes");
+        let today_echoes = storage
+            .get_echoes_for_day(today)
+            .expect("Failed to get echoes");
         assert_eq!(today_echoes.len(), 2);
-        let yesterday_echoes = storage.get_echoes_for_day(yesterday).expect("Failed to get echoes");
+        let yesterday_echoes = storage
+            .get_echoes_for_day(yesterday)
+            .expect("Failed to get echoes");
         assert_eq!(yesterday_echoes.len(), 1);
     }
 
@@ -590,7 +714,17 @@ mod tests {
     fn test_meditation_echo_roundtrip() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
         let section = make_section(&storage);
-        let echo = Echo::new(Local::now().date_naive(), section.id, "Morning Sit".to_string(), EchoContent::MeditationEcho(MeditationData { markdown: Some("Felt calm.".to_string()), duration_minutes: 20, mood_before: Some(5), mood_after: Some(8) }));
+        let echo = Echo::new(
+            Local::now().date_naive(),
+            section.id,
+            "Morning Sit".to_string(),
+            EchoContent::MeditationEcho(MeditationData {
+                markdown: Some("Felt calm.".to_string()),
+                duration_minutes: 20,
+                mood_before: Some(5),
+                mood_after: Some(8),
+            }),
+        );
         storage.save_echo(&echo).expect("Failed to save");
         let found = storage.get_echo(&echo.id).expect("Failed to get").unwrap();
         match found.content {
@@ -607,7 +741,31 @@ mod tests {
     fn test_task_echo_roundtrip() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
         let section = make_section(&storage);
-        let echo = Echo::new(Local::now().date_naive(), section.id, "Buy groceries".to_string(), EchoContent::TaskEcho(TaskData { description: None, due_date: None, due_time: None, completed: false, completed_at: None, priority: Priority::High, checklist: vec![ChecklistItem { text: "Milk".to_string(), done: false }, ChecklistItem { text: "Eggs".to_string(), done: true }], estimated_minutes: Some(30), recurrence: None }));
+        let echo = Echo::new(
+            Local::now().date_naive(),
+            section.id,
+            "Buy groceries".to_string(),
+            EchoContent::TaskEcho(TaskData {
+                description: None,
+                due_date: None,
+                due_time: None,
+                completed: false,
+                completed_at: None,
+                priority: Priority::High,
+                checklist: vec![
+                    ChecklistItem {
+                        text: "Milk".to_string(),
+                        done: false,
+                    },
+                    ChecklistItem {
+                        text: "Eggs".to_string(),
+                        done: true,
+                    },
+                ],
+                estimated_minutes: Some(30),
+                recurrence: None,
+            }),
+        );
         storage.save_echo(&echo).expect("Failed to save");
         let found = storage.get_echo(&echo.id).expect("Failed to get").unwrap();
         match found.content {
@@ -624,7 +782,27 @@ mod tests {
     fn test_workout_echo_roundtrip() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
         let section = make_section(&storage);
-        let echo = Echo::new(Local::now().date_naive(), section.id, "Push Day".to_string(), EchoContent::WorkoutEcho(WorkoutData { template_id: None, exercises: vec![PerformedExercise { name: "Bench Press".to_string(), sets: vec![SetEntry { reps: 8, weight: Some(80.0), completed: true, rest_seconds: Some(90), is_warmup: false }] }], duration_minutes: Some(60), notes: Some("Felt strong.".to_string()), perceived_effort: Some(7) }));
+        let echo = Echo::new(
+            Local::now().date_naive(),
+            section.id,
+            "Push Day".to_string(),
+            EchoContent::WorkoutEcho(WorkoutData {
+                template_id: None,
+                exercises: vec![PerformedExercise {
+                    name: "Bench Press".to_string(),
+                    sets: vec![SetEntry {
+                        reps: 8,
+                        weight: Some(80.0),
+                        completed: true,
+                        rest_seconds: Some(90),
+                        is_warmup: false,
+                    }],
+                }],
+                duration_minutes: Some(60),
+                notes: Some("Felt strong.".to_string()),
+                perceived_effort: Some(7),
+            }),
+        );
         storage.save_echo(&echo).expect("Failed to save");
         let found = storage.get_echo(&echo.id).expect("Failed to get").unwrap();
         match found.content {
@@ -642,7 +820,14 @@ mod tests {
     fn test_echo_shared_fields_roundtrip() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
         let section = make_section(&storage);
-        let mut echo = Echo::new(Local::now().date_naive(), section.id, "Tagged Echo".to_string(), EchoContent::PlainEcho(PlainData { markdown: "With metadata".to_string() }));
+        let mut echo = Echo::new(
+            Local::now().date_naive(),
+            section.id,
+            "Tagged Echo".to_string(),
+            EchoContent::PlainEcho(PlainData {
+                markdown: "With metadata".to_string(),
+            }),
+        );
         echo.mood = Some(7);
         echo.energy = Some(9);
         echo.pinned = true;
@@ -661,7 +846,14 @@ mod tests {
         let section = make_section(&storage);
         let day = Local::now().date_naive();
 
-        let plain = Echo::new(day, section.id, "Note".to_string(), EchoContent::PlainEcho(PlainData { markdown: "hi".to_string() }));
+        let plain = Echo::new(
+            day,
+            section.id,
+            "Note".to_string(),
+            EchoContent::PlainEcho(PlainData {
+                markdown: "hi".to_string(),
+            }),
+        );
         let task1 = Echo::new_task(day, section.id, "Task one".to_string());
         let task2 = Echo::new_task(day, section.id, "Task two".to_string());
 
@@ -693,21 +885,36 @@ mod tests {
         let mut program =
             WorkoutProgram::new("Push/Pull/Legs".to_string(), Some("6-day".to_string()));
 
-        storage.save_program(&program).expect("Failed to save program");
+        storage
+            .save_program(&program)
+            .expect("Failed to save program");
 
-        let found = storage.get_program(&program.id).expect("Query failed").unwrap();
+        let found = storage
+            .get_program(&program.id)
+            .expect("Query failed")
+            .unwrap();
         assert_eq!(found.name, "Push/Pull/Legs");
         assert_eq!(found.notes.as_deref(), Some("6-day"));
 
         program.name = "PPL".to_string();
         program.notes = None;
         storage.update_program(&program).expect("Failed to update");
-        let updated = storage.get_program(&program.id).expect("Query failed").unwrap();
+        let updated = storage
+            .get_program(&program.id)
+            .expect("Query failed")
+            .unwrap();
         assert_eq!(updated.name, "PPL");
         assert!(updated.notes.is_none());
 
-        storage.delete_program(&program.id).expect("Failed to delete");
-        assert!(storage.get_program(&program.id).expect("Query failed").is_none());
+        storage
+            .delete_program(&program.id)
+            .expect("Failed to delete");
+        assert!(
+            storage
+                .get_program(&program.id)
+                .expect("Query failed")
+                .is_none()
+        );
     }
 
     #[test]
@@ -722,9 +929,14 @@ mod tests {
     fn test_template_roundtrip() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
         let template = sample_template(None, 3, "Push Day");
-        storage.save_template(&template).expect("Failed to save template");
+        storage
+            .save_template(&template)
+            .expect("Failed to save template");
 
-        let found = storage.get_template(&template.id).expect("Query failed").unwrap();
+        let found = storage
+            .get_template(&template.id)
+            .expect("Query failed")
+            .unwrap();
         assert_eq!(found.name, "Push Day");
         assert_eq!(found.sort_order, 3);
         assert!(found.program_id.is_none());
@@ -739,7 +951,9 @@ mod tests {
     fn test_get_templates_for_program() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
         let program = WorkoutProgram::new("PPL".to_string(), None);
-        storage.save_program(&program).expect("Failed to save program");
+        storage
+            .save_program(&program)
+            .expect("Failed to save program");
         let other = WorkoutProgram::new("Other".to_string(), None);
         storage.save_program(&other).expect("Failed to save other");
 
@@ -820,10 +1034,14 @@ mod tests {
         storage.save_echo(&m1).expect("Failed to save m1");
         storage.save_echo(&m2).expect("Failed to save m2");
 
-        let meditations = storage.get_all_meditations().expect("Failed to get meditations");
+        let meditations = storage
+            .get_all_meditations()
+            .expect("Failed to get meditations");
         assert_eq!(meditations.len(), 2);
-        assert!(meditations
-            .iter()
-            .all(|e| e.content_type_name() == "Meditation Echo"));
+        assert!(
+            meditations
+                .iter()
+                .all(|e| e.content_type_name() == "Meditation Echo")
+        );
     }
 }
