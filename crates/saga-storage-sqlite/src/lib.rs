@@ -9,6 +9,12 @@ use std::str::FromStr;
 use thiserror::Error;
 use uuid::Uuid;
 
+mod migrations;
+use migrations::run_migrations;
+
+mod config;
+pub use config::{open_default, resolve_db_path};
+
 #[derive(Error, Debug)]
 pub enum StorageError {
     #[error("Database error: {0}")]
@@ -23,6 +29,8 @@ pub enum StorageError {
     TemplateNotFound(Uuid),
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
 }
 
 pub type Result<T> = std::result::Result<T, StorageError>;
@@ -33,56 +41,10 @@ pub struct Storage {
 
 impl Storage {
     pub fn new<P: AsRef<Path>>(db_path: P) -> Result<Self> {
-        let conn = Connection::open(db_path)?;
+        let mut conn = Connection::open(db_path)?;
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
-        let storage = Self { conn };
-        storage.init_schema()?;
-        Ok(storage)
-    }
-
-    fn init_schema(&self) -> Result<()> {
-        self.conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS sections (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                sort_order INTEGER NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS echoes (
-                id TEXT PRIMARY KEY,
-                day TEXT NOT NULL,
-                section_id TEXT NOT NULL,
-                title TEXT NOT NULL,
-                content_type TEXT NOT NULL,
-                content_json TEXT NOT NULL,
-                mood INTEGER,
-                energy INTEGER,
-                pinned INTEGER NOT NULL DEFAULT 0,
-                tags TEXT NOT NULL DEFAULT '[]',
-                linked_echo_id TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY (section_id) REFERENCES sections(id)
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_echoes_day ON echoes(day);
-
-            CREATE TABLE IF NOT EXISTS workout_programs (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                notes TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS workout_templates (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                program_id TEXT,
-                sort_order INTEGER NOT NULL,
-                exercises_json TEXT NOT NULL DEFAULT '[]',
-                FOREIGN KEY (program_id) REFERENCES workout_programs(id)
-            );",
-        )?;
-        Ok(())
+        run_migrations(&mut conn)?;
+        Ok(Self { conn })
     }
 
     pub fn save_section(&self, section: &Section) -> Result<()> {
