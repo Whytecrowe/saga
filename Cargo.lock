@@ -4980,8 +4980,10 @@ name = "saga-storage-sqlite"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "dirs 6.0.0",
  "rusqlite",
  "saga-core",
+ "serde",
  "serde_json",
  "thiserror 2.0.18",
  "uuid",

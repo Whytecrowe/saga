@@ -12,6 +12,9 @@ use uuid::Uuid;
 mod migrations;
 use migrations::run_migrations;
 
+mod config;
+pub use config::{open_default, resolve_db_path};
+
 #[derive(Error, Debug)]
 pub enum StorageError {
     #[error("Database error: {0}")]
@@ -26,6 +29,8 @@ pub enum StorageError {
     TemplateNotFound(Uuid),
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
 }
 
 pub type Result<T> = std::result::Result<T, StorageError>;
