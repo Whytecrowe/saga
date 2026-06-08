@@ -1,102 +1,83 @@
 slint::include_modules!();
 
-use chrono::Local;
-use saga_core::model::{Echo, EchoContent, PlainData, Section};
-use saga_storage_sqlite::Storage;
+use chrono::{Local, NaiveDate};
+use saga_core::model::{ECHO_TYPE_PLAIN, Echo, EchoContent, PlainData, Section};
+use saga_storage_sqlite::{Storage, open_default};
+use slint::{ModelRc, SharedString, VecModel};
+use std::collections::BTreeMap;
 use std::rc::Rc;
+use uuid::Uuid;
 
 pub fn run() {
-    let db_path = get_database_path();
-    let storage = Storage::new(&db_path).expect("Failed to open database");
+    let storage = open_storage();
+    let section_id = ensure_default_section(&storage);
 
     let ui = App::new().expect("Failed to create UI");
 
-    load_data(&ui, &storage);
+    let today = Local::now().date_naive();
+    ui.set_today_iso(today.to_string().into());
 
-    let ui_weak = ui.as_weak();
-    let storage_clone = Rc::new(storage);
+    // Shared, single-threaded ownership so every callback can hold the DB.
+    let storage = Rc::new(storage);
 
-    // add sections
+    load_timeline(&ui, &storage);
+
+    // ---- create a new Plain Echo ----
     {
-        let ui_weak = ui_weak.clone();
-        let storage = storage_clone.clone();
+        let ui_weak = ui.as_weak();
+        let storage = storage.clone();
 
-        ui.on_add_section(move |name| {
-            let sort_order = storage
-                .get_next_sort_order()
-                .expect("Failed to get sort order");
-            let new_section = Section::new(name.to_string(), sort_order);
-            storage
-                .save_section(&new_section)
-                .expect("Failed to save section");
+        ui.on_create_echo(move |day_iso, body| {
+            let day = NaiveDate::parse_from_str(&day_iso, "%Y-%m-%d")
+                .unwrap_or_else(|_| Local::now().date_naive());
+
+            let echo = Echo::new(
+                day,
+                section_id,
+                String::new(),
+                EchoContent::PlainEcho(PlainData {
+                    markdown: body.to_string(),
+                }),
+            );
+            storage.save_echo(&echo).expect("Failed to save echo");
 
             if let Some(ui) = ui_weak.upgrade() {
-                load_data(&ui, &storage);
+                load_timeline(&ui, &storage);
             }
         });
     }
 
-    // create echo callback
+    // ---- edit an existing Echo's body ----
     {
-        let ui_weak = ui_weak.clone();
-        let storage = storage_clone.clone();
+        let ui_weak = ui.as_weak();
+        let storage = storage.clone();
 
-        ui.on_save_echo(move |echo_item| {
-            let section_name = echo_item.section_name.to_string();
-            let title = echo_item.title.to_string();
-            let markdown = echo_item.markdown.to_string();
-            let id_str = echo_item.id.to_string();
-
-            // Find or create section
-            let sections = storage.get_all_sections().expect("Failed to load sections");
-
-            let section = sections
-                .iter()
-                .find(|s| s.name == section_name.as_str())
-                .cloned()
-                .unwrap_or_else(|| {
-                    let max_sort_order = sections.iter().map(|s| s.sort_order).max().unwrap_or(0);
-
-                    // Section doesn't exist - create it
-                    let new_section = Section::new(section_name.to_string(), max_sort_order + 1);
-                    storage
-                        .save_section(&new_section)
-                        .expect("Failed to save section");
-                    new_section
-                });
-
-            if id_str.is_empty() {
-                // Make a new Echo if ID doesn't exist yet
-                let day_str = echo_item.day.to_string();
-                let target_day = chrono::NaiveDate::parse_from_str(&day_str, "%Y-%m-%d")
-                    .unwrap_or_else(|_| Local::now().date_naive());
-
-                let echo = Echo::new(
-                    target_day,
-                    section.id,
-                    title.to_string(),
-                    EchoContent::PlainEcho(PlainData {
-                        markdown: markdown.to_string(),
-                    }),
-                );
-
-                storage.save_echo(&echo).expect("Failed to save echo");
-            } else {
-                // Update existing Echo
-                let uuid = uuid::Uuid::parse_str(&id_str).expect("Invalid UUID for Echo");
-                if let Some(mut echo) = storage.get_echo(&uuid).unwrap() {
-                    echo.title = title;
-                    echo.section_id = section.id;
-                    echo.update_content(EchoContent::PlainEcho(PlainData {
-                        markdown,
-                    }));
-
-                    storage.update_echo(&echo).expect("Failed to update echo");
-                }
+        ui.on_update_echo(move |id, body| {
+            let uuid = Uuid::parse_str(&id).expect("Invalid Echo UUID");
+            if let Some(mut echo) = storage.get_echo(&uuid).expect("Failed to load echo") {
+                echo.update_content(EchoContent::PlainEcho(PlainData {
+                    markdown: body.to_string(),
+                }));
+                storage.update_echo(&echo).expect("Failed to update echo");
             }
 
             if let Some(ui) = ui_weak.upgrade() {
-                load_data(&ui, &storage);
+                load_timeline(&ui, &storage);
+            }
+        });
+    }
+
+    // ---- delete an Echo ----
+    {
+        let ui_weak = ui.as_weak();
+        let storage = storage.clone();
+
+        ui.on_delete_echo(move |id| {
+            let uuid = Uuid::parse_str(&id).expect("Invalid Echo UUID");
+            storage.delete_echo(&uuid).expect("Failed to delete echo");
+
+            if let Some(ui) = ui_weak.upgrade() {
+                load_timeline(&ui, &storage);
             }
         });
     }
@@ -104,36 +85,126 @@ pub fn run() {
     ui.run().expect("Failed to run UI");
 }
 
+// Reads every Plain Echo, groups them by day (newest day first),
+// and hands the nested model to the timeline.
+fn load_timeline(ui: &App, storage: &Storage) {
+    let echoes = storage.get_all_echoes().expect("Failed to load echoes");
+    let today = Local::now().date_naive();
+
+    let mut by_day: BTreeMap<NaiveDate, Vec<Echo>> = BTreeMap::new();
+    for echo in echoes
+        .into_iter()
+        .filter(|e| e.content_type_name() == ECHO_TYPE_PLAIN)
+    {
+        by_day.entry(echo.day).or_default().push(echo);
+    }
+    // Always show today, even when it's empty, so there's an entry point.
+    by_day.entry(today).or_default();
+
+    let mut days: Vec<DaySignpost> = Vec::new();
+    for (day, mut day_echoes) in by_day.into_iter().rev() {
+        day_echoes.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+
+        let items: Vec<EchoItem> = day_echoes.iter().map(echo_to_item).collect();
+
+        days.push(DaySignpost {
+            iso: day.to_string().into(),
+            label: day.format("%A, %B %e").to_string().into(),
+            rel: relative_label(day, today).into(),
+            is_today: day == today,
+            echoes: ModelRc::new(VecModel::from(items)),
+        });
+    }
+
+    ui.set_days(ModelRc::new(VecModel::from(days)));
+}
+
+fn echo_to_item(echo: &Echo) -> EchoItem {
+    let body = match &echo.content {
+        EchoContent::PlainEcho(data) => data.markdown.clone(),
+        _ => String::new(),
+    };
+    let tags: Vec<SharedString> = echo.tags.iter().map(|t| t.clone().into()).collect();
+
+    EchoItem {
+        id: echo.id.to_string().into(),
+        body: body.into(),
+        time: echo.created_at.format("%I:%M %p").to_string().into(),
+        mood: echo.mood.map(|v| v as i32).unwrap_or(0),
+        energy: echo.energy.map(|v| v as i32).unwrap_or(0),
+        has_mood: echo.mood.is_some(),
+        has_energy: echo.energy.is_some(),
+        pinned: echo.pinned,
+        tags: ModelRc::new(VecModel::from(tags)),
+    }
+}
+
+fn relative_label(day: NaiveDate, today: NaiveDate) -> String {
+    let diff = (today - day).num_days();
+    match diff {
+        0 => "Today".to_string(),
+        1 => "Yesterday".to_string(),
+        -1 => "Tomorrow".to_string(),
+        n if n > 1 => format!("{n} days ago"),
+        n => format!("in {} days", -n),
+    }
+}
+
+// Sections are being retired (tags supersede them). Until the clean
+// removal lands, every new Echo lives in one hidden "Journal" section.
+fn ensure_default_section(storage: &Storage) -> Uuid {
+    let sections = storage
+        .get_all_sections()
+        .expect("Failed to load sections");
+
+    if let Some(existing) = sections.iter().find(|s| s.name == "Journal") {
+        return existing.id;
+    }
+
+    let sort_order = storage
+        .get_next_sort_order()
+        .expect("Failed to get sort order");
+    let section = Section::new("Journal".to_string(), sort_order);
+    storage
+        .save_section(&section)
+        .expect("Failed to save default section");
+    section.id
+}
+
+#[cfg(not(target_os = "android"))]
+fn open_storage() -> Storage {
+    open_default().expect("Failed to open database")
+}
+
 #[cfg(target_os = "android")]
-fn get_database_path() -> String {
+fn open_storage() -> Storage {
+    Storage::new(android_db_path()).expect("Failed to open database")
+}
+
+#[cfg(target_os = "android")]
+fn android_db_path() -> String {
     use jni::JavaVM;
     use jni::objects::{JObject, JString};
 
     let ctx = ndk_context::android_context();
 
-    // 1. Get the Java VM and attach the current thread
     let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }.unwrap();
     let mut env = vm.attach_current_thread().unwrap();
 
-    // 2. Wrap JNI calls in a local frame (size 16 is plenty for this)
-    // This ensures all JObjects created inside are cleared from memory immediately after.
     let path_result: String = env
         .with_local_frame(16, |env| {
             let context = unsafe { JObject::from_raw(ctx.context().cast()) };
 
-            // Call context.getFilesDir() -> returns a File object
             let files_dir = env
                 .call_method(&context, "getFilesDir", "()Ljava/io/File;", &[])
                 .map_err(|e| format!("Failed to call getFilesDir: {:?}", e))?
                 .l()?;
 
-            // Call files_dir.getAbsolutePath() -> returns a String object
             let path_obj = env
                 .call_method(&files_dir, "getAbsolutePath", "()Ljava/lang/String;", &[])
                 .map_err(|e| format!("Failed to get path: {:?}", e))?
                 .l()?;
 
-            // Convert the Java String object into a Rust String
             let jstring: JString = path_obj.into();
             let rust_str: String = env.get_string(&jstring)?.into();
 
@@ -141,85 +212,7 @@ fn get_database_path() -> String {
         })
         .expect("Failed to retrieve Android files directory");
 
-    // 3. Construct the final path
     format!("{}/saga.db", path_result)
-}
-
-#[cfg(not(target_os = "android"))]
-fn get_database_path() -> String {
-    "saga.db".to_string()
-}
-
-fn load_data(ui: &App, storage: &Storage) {
-    let all_sections = load_echoes_data(ui, storage);
-
-    let mut journey_days: Vec<JourneyDay> = Vec::new();
-    let today = Local::now().date_naive();
-
-    for i in 0..14 {
-        let date = today - chrono::Duration::days(i);
-        journey_days.push(JourneyDay {
-            day_id: date.to_string().into(),
-            display_name: date.format("%b %e").to_string().to_uppercase().into(),
-            is_today: i == 0,
-        })
-    }
-
-    ui.set_journey_days(Rc::new(slint::VecModel::from(journey_days)).into());
-
-    let section_names: Vec<slint::SharedString> =
-        all_sections.iter().map(|s| s.name.clone().into()).collect();
-
-    // Update the UI
-    ui.set_sections(Rc::new(slint::VecModel::from(section_names)).into());
-}
-
-fn load_echoes_data(ui: &App, storage: &Storage) -> Vec<Section> {
-    let echoes = storage.get_all_echoes().expect("Failed to load echoes");
-
-    let sections = storage.get_all_sections().expect("Failed to load sections");
-
-    let echo_items: Vec<EchoItem> = echoes
-        .iter()
-        .map(|e| {
-            let section_name = sections
-                .iter()
-                .find(|s| s.id == e.section_id)
-                .map(|s| s.name.clone())
-                .unwrap_or_else(|| "Unknown".to_string());
-
-            let body = body_text(&e.content);
-
-            let preview_text = body
-                .lines()
-                .next()
-                .unwrap_or("")
-                .chars()
-                .take(100)
-                .collect::<String>();
-
-            EchoItem {
-                id: e.id.to_string().into(),
-                title: e.title.clone().into(),
-                preview: preview_text.into(),
-                markdown: body.into(),
-                section_name: section_name.into(),
-                day: e.day.to_string().into(),
-                created_at: e.created_at.format("%I:%M %p").to_string().into(),
-            }
-        })
-        .collect();
-
-    ui.set_echoes(Rc::new(slint::VecModel::from(echo_items)).into());
-
-    sections
-}
-
-fn body_text(content: &EchoContent) -> String {
-    match content {
-        EchoContent::PlainEcho(data) => data.markdown.clone(),
-        _ => String::new(),
-    }
 }
 
 #[cfg(target_os = "android")]

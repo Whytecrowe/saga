@@ -1,0 +1,150 @@
+// ============================================================
+// Reusable building blocks. Each exposes `in` properties (data
+// passed down) and `callback`s (events sent up). Motion lives
+// inside them so every screen feels alive for free.
+// ============================================================
+
+import { Theme } from "theme.slint";
+
+// A tappable Echo card. Content is provided by the parent via
+// @children. It reports raw input up to the app:
+//   - `clicked`         : a normal tap
+//   - `delete-requested`: a right-click (desktop)
+//   - `hold-started` / `hold-ended`: finger down/up, so the app
+//     can time a long-press with a single shared Timer. (A Timer
+//     placed *inside* a repeated component trips a Slint 1.9.1
+//     compiler bug, so the timing lives at the app root instead.)
+export component Card inherits Rectangle {
+    callback clicked();
+    callback delete-requested();
+    callback hold-started();
+    callback hold-ended();
+
+    background: Theme.surface;
+    border-radius: Theme.radius;
+    border-width: 1px;
+    // border glows toward the accent on hover — a standing truth,
+    // not a manual update. `animate` makes the change glide.
+    border-color: ta.has-hover ? Theme.accent : Theme.line;
+    drop-shadow-color: #78521e22;
+    drop-shadow-blur: ta.has-hover ? 30px : 16px;
+    drop-shadow-offset-y: ta.has-hover ? 12px : 6px;
+    animate border-color, drop-shadow-blur, drop-shadow-offset-y {
+        duration: Theme.base;
+        easing: Theme.doey;
+    }
+
+    // left accent bar that grows on hover (height 0 -> full)
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: 3px;
+        height: ta.has-hover ? parent.height : 0px;
+        background: Theme.accent;
+        border-top-left-radius: Theme.radius;
+        border-bottom-left-radius: Theme.radius;
+        animate height {
+            duration: Theme.base;
+            easing: Theme.doey;
+        }
+    }
+
+    ta := TouchArea {
+        pointer-event(ev) => {
+            if (ev.kind == PointerEventKind.down && ev.button == PointerEventButton.right) {
+                root.delete-requested();
+            } else if (ev.kind == PointerEventKind.down) {
+                root.hold-started();
+            }
+            if (ev.kind == PointerEventKind.up || ev.kind == PointerEventKind.cancel) {
+                root.hold-ended();
+            }
+        }
+        clicked => { root.clicked(); }
+    }
+
+    @children
+}
+
+// Solid call-to-action button (Save).
+export component PrimaryButton inherits Rectangle {
+    in property <string> text;
+    callback clicked();
+
+    height: 46px;
+    background: ta.pressed ? Theme.clay : Theme.accent;
+    border-radius: 14px;
+    drop-shadow-color: #b5651d66;
+    drop-shadow-blur: ta.has-hover ? 28px : 16px;
+    drop-shadow-offset-y: ta.has-hover ? 10px : 6px;
+    animate background, drop-shadow-blur, drop-shadow-offset-y {
+        duration: Theme.quick;
+        easing: Theme.doey;
+    }
+
+    Text {
+        width: 100%;
+        height: 100%;
+        text: root.text;
+        color: Theme.on-accent;
+        font-size: 15px;
+        font-weight: 800;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// Outlined / quiet button (Cancel, Delete, close).
+export component GhostButton inherits Rectangle {
+    in property <string> text;
+    callback clicked();
+
+    height: 46px;
+    background: ta.has-hover ? Theme.surface-2 : transparent;
+    border-radius: 14px;
+    border-width: 1px;
+    border-color: Theme.line;
+    animate background { duration: Theme.quick; }
+
+    Text {
+        width: 100%;
+        height: 100%;
+        text: root.text;
+        color: Theme.ink-soft;
+        font-size: 14px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// Small rounded tag/metadata pill. Sizes to its text.
+export component Chip inherits Rectangle {
+    in property <string> text;
+
+    height: 24px;
+    background: Theme.surface-2;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.line;
+
+    HorizontalLayout {
+        padding-left: 9px;
+        padding-right: 9px;
+        Text {
+            text: root.text;
+            color: Theme.clay;
+            font-size: 12px;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+    }
+}

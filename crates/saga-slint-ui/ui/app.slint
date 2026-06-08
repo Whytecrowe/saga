@@ -1,317 +1,382 @@
-import { Button, ScrollView, ListView, TextEdit, ComboBox, VerticalBox, HorizontalBox, LineEdit } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Card, PrimaryButton, GhostButton, Chip } from "components.slint";
+import { TextEdit, ScrollView } from "std-widgets.slint";
 
-
+// One Echo, flattened for the UI. (mood/energy/pinned/tags are
+// here now so Tasks + shared-fields in 1B/1C don't reshape it.)
 export struct EchoItem {
     id: string,
-    title: string,
-    markdown: string,
-    preview: string,
-    section-name: string,
-    day: string,
-    created-at: string,
+    body: string,
+    time: string,
+    mood: int,
+    energy: int,
+    has-mood: bool,
+    has-energy: bool,
+    pinned: bool,
+    tags: [string],
 }
 
-export struct JourneyDay {
-    day_id: string,      // e.g., "2026-02-18" (for matching echoes)
-    display_name: string, // e.g., "FEB 18"
-    is_today: bool,
+// A day on the timeline, holding its Echoes.
+export struct DaySignpost {
+    iso: string,
+    label: string,
+    rel: string,
+    is-today: bool,
+    echoes: [EchoItem],
 }
 
 export component App inherits Window {
-    preferred-width: 400px;
-    preferred-height: 800px;
+    title: "Saga";
+    preferred-width: 560px;
+    preferred-height: 820px;
+    default-font-size: 15px;
+    background: Theme.bg;
 
-    // States: 0 = Journey (Main), 1 = Echo screen (View/Edit)
-    property <int> screen-state: 0;
-    property <bool> edit-mode: false;
-    property <int> sun-view-mode: 0;
-    property <EchoItem> active-echo;
-    property <int> expanded-day: -1;
-    in-out property <[string]> sections: [];
-    in-out property <[EchoItem]> echoes: [];
-    in-out property <string> current-date-str;
-    in-out property <[JourneyDay]> journey-days: [];
+    // ---- data from Rust ----
+    in property <[DaySignpost]> days;
+    in property <string> today-iso;
 
-    // Callbacks for Rust integration
-    callback save-echo(EchoItem);
-    callback add-section(string);
+    // ---- composer state ----
+    property <bool> composer-open: false;
+    property <string> draft-id: "";   // "" = creating a new Echo
+    property <string> draft-day: "";
+    property <string> draft-body: "";
 
-    background: screen-state == 0
-        ? @linear-gradient(180deg, #2e7d32 0%, #4caf50 50%, #81c784 100%)
-        : (edit-mode ? #fff3e0 : #fffaf0);
+    // ---- delete-confirm state ----
+    property <bool> confirm-open: false;
+    property <string> confirm-id: "";
 
-    // ==========================================
-    // SCREEN 0: THE PATH (MAIN SCREEN)
-    // ==========================================
-    if screen-state == 0 : Rectangle {
-        Flickable {
-            width: 100%; height: 100%;
-            viewport-height: 1800px;
+    // ---- long-press tracking (one shared timer at the root) ----
+    property <string> hold-id: "";
+    property <bool> hold-fired: false;
 
-            // Meadow Texture
-            for i in 80 : Rectangle {
-                x: Math.mod(i * 197, 390) * 1px + 5px;
-                y: Math.mod(i * 283, 1750) * 1px + 300px;
-                width: 1.2px; height: 1.2px;
-                background: rgba(255, 255, 255, 0.15);
-                border-radius: 0.6px;
-            }
+    // ---- events up to Rust ----
+    callback create-echo(string, string);   // (day-iso, body)
+    callback update-echo(string, string);    // (id, body)
+    callback delete-echo(string);            // (id)
 
-            // THE WINDING ROAD
-            Path {
-                width: 400px; height: 1400px; y: 300px;
-                stroke: #8d7d6f; stroke-width: 80px;
-                commands: "M 200 0 Q 300 300 200 600 T 200 1400";
-                opacity: 0.8;
-            }
+    function open-new() {
+        root.draft-id = "";
+        root.draft-day = root.today-iso;
+        root.draft-body = "";
+        root.composer-open = true;
+    }
+    function open-editor(id: string, body: string) {
+        root.draft-id = id;
+        root.draft-body = body;
+        root.composer-open = true;
+    }
+    function ask-delete(id: string) {
+        root.confirm-id = id;
+        root.confirm-open = true;
+    }
 
-            // LANDMARKS
-            for day[i] in journey-days : Rectangle {
-                property <bool> is-expanded: expanded-day == i;
-                property <bool> is-left: Math.mod(i, 2) == 0;
-
-                x: is-left ? 60px : 270px;
-                y: i * 220px + 350px;
-                width: 70px; height: 70px;
-
-                // Date Bubble
-                Rectangle {
-                    width: 70px; height: 70px;
-                    background: is-expanded ? #ffffff : (day.is_today ? #fff3e0 : #fdfcfbaa);
-                    border-radius: 35px;
-                    border-width: day.is_today ? 3px : 2px;
-                    border-color: #3e2723;
-
-                    Text {
-                        text: day.display_name;
-                        color: #3e2723;
-                        font-size: 12px;
-                        font-weight: 800;
-                        horizontal-alignment: center;
-                    }
-
-                    TouchArea { clicked => { expanded-day = (expanded-day == i) ? -1 : i; } }
-                }
-
-                // ADAPTIVE BUBBLES
-                if is-expanded : Rectangle {
-                    z: 10;
-
-                    // Show ONLY echoes that belong to THIS day_id
-                    for echo[j] in echoes : Rectangle {
-                        // Logic: Hide the bubble if it doesn't match the day
-                        visible: echo.day == day.day_id;
-                        width: self.visible ? 55px : 0px;
-                        height: self.visible ? 55px : 0px;
-
-                        property <angle> sprout-angle: (is-left ? 0deg : 180deg) + (j * 40deg) - 20deg;
-                        x: 35px + Math.sin(sprout-angle) * 85px - 25px;
-                        y: 35px + Math.cos(sprout-angle) * 85px - 25px;
-
-                        background: #fff9c4;
-                        border-radius: 27.5px;
-                        border-width: 1px;
-                        border-color: #fbc02d;
-
-                        VerticalLayout {
-                            padding: 6px;
-                            alignment: center;
-                            spacing: 2px;
-
-                            Text {
-                                text: echo.section-name;
-                                font-size: 7px;
-                                color: #8d7d6f;
-                                font-weight: 900;
-                                horizontal-alignment: center;
-                                overflow: elide;
-                                }
-                            Text {
-                                text: echo.title;
-                                font-size: 10px;
-                                font-weight: 700;
-                                color: #3e2723;
-                                horizontal-alignment: center;
-                                wrap: word-wrap;
-                                vertical-alignment:
-                                center;
-                                max-height: 24px;
-                                overflow: elide;
-                            }
-                        }
-
-                        TouchArea {
-                            clicked => {
-                                active-echo = echo;
-                                edit-mode = false;
-                                screen-state = 1;
-                            }
-                        }
-                    }
-
-                    Rectangle {
-                        property <angle> plus-angle: is-left ? -45deg : 225deg;
-                        x: 35px + Math.sin(plus-angle) * 85px - 25px;
-                        y: 35px + Math.cos(plus-angle) * 85px - 25px;
-                        width: 50px; height: 50px;
-                        background: #e8f5e9;
-                        border-radius: 25px;
-                        border-color: #66bb6a;
-                        border-width: 1.5px;
-
-                        Text { text: "+"; font-size: 20px; color: #2e7d32; font-weight: 800; horizontal-alignment: center; }
-
-                        TouchArea {
-                            clicked => {
-                                active-echo = {
-                                    id: "",
-                                    title: "",
-                                    markdown: "",
-                                    section-name: sections[0],
-                                    day: day.day_id
-                                };
-                                edit-mode = true;
-                                screen-state = 1;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // --- FIXED HORIZON ---
-        Rectangle {
-            y: 0; width: 100%; height: 280px;
-            background: @linear-gradient(180deg, #4facfe 0%, #00f2fe 60%, transparent 100%);
-            clip: true; z: 20;
-
-            Rectangle {
-                x: 320px; y: 40px; width: 60px; height: 60px;
-                background: @radial-gradient(circle, #ffd700 0%, #ff8c00 100%);
-                border-radius: 30px;
-                TouchArea { clicked => { sun-view-mode = Math.mod(sun-view-mode + 1, 3); } }
-                Text {
-                    text: (sun-view-mode == 0) ? "WEEK" : (sun-view-mode == 1) ? "MONTH" : "ALL";
-                    font-size: 10px; font-weight: 900; color: white;
-                    horizontal-alignment: center; vertical-alignment: center;
-                }
-            }
-
-            Path { width: 400px; height: 180px; y: 100px; fill: #77889966; commands: "M 0 180 L 100 40 L 220 120 L 320 20 L 400 180 Z"; }
-            Path { width: 400px; height: 180px; y: 120px; fill: #4b5d67; commands: "M 0 180 L 140 20 L 280 180 Z"; }
-        }
-
-        Text {
-            x: 0; y: 40px; width: 100%;
-            text: "S  A  G  A";
-            horizontal-alignment: center; font-size: 20px; font-weight: 900;
-            color: white; letter-spacing: 12px; opacity: 0.8; z: 25;
+    // Fires ~0.5s after a card press begins, unless the finger lifted
+    // first (which clears hold-id and stops the timer).
+    Timer {
+        interval: 500ms;
+        running: root.hold-id != "";
+        triggered => {
+            root.hold-fired = true;
+            root.ask-delete(root.hold-id);
+            root.hold-id = "";
         }
     }
 
-    // ==========================================
-    // SCREEN 1: ECHO SCREEN (VIEW / EDIT)
-    // ==========================================
-    if screen-state == 1 : Rectangle {
-        width: 100%; height: 100%;
-        background: edit-mode ? #966516 : #9b6f28;
-
-        VerticalLayout {
-            padding: 24px;
-            spacing: 16px;
-
-            // Header Row
-            HorizontalLayout {
-                VerticalLayout {
-                    spacing: 4px;
-                    Text {
-                        text: edit-mode ? "Editing Entry" : active-echo.section-name;
-                        font-size: 14px;
-                        color: #5d4037;
-                        font-weight: 900;
-                    }
-                    Text {
-                        text: active-echo.day;
-                        font-size: 16px;
-                        color: #3e2723;
-                        font-weight: 700;
-                    }
-                }
-                Rectangle { horizontal-stretch: 1; }
-
-                Button {
-                    text: "Back to Road";
-                    clicked => { screen-state = 0; edit-mode = false; }
-                }
-
-                if !edit-mode : Button { text: "Edit"; clicked => { edit-mode = true; } }
-
-                if edit-mode : Button {
-                    text: "Save";
-                    clicked => {
-                        save-echo({
-                            id: active-echo.id,
-                            title: title_in.text,
-                            markdown: body_in.text,
-                            section-name: sect_combo.current-value,
-                            day: active-echo.day
-                        });
-                        edit-mode = false;
-                    }
-                }
-                if edit-mode : Button { text: "Cancel"; clicked => { edit-mode = false; } }
-            }
-
-            Rectangle { height: 1px; background: #8d7d6f55; }
-
-            // Title Box
-            title_in := LineEdit {
-                text: active-echo.title;
-                placeholder-text: "Title of your Echo...";
-                font-size: 24px;
-                enabled: edit-mode;
-            }
-
-            // Section Selection
-            HorizontalLayout {
-                spacing: 10px;
-                Text { text: "Section:"; vertical-alignment: center; color: #3e2723; font-weight: 700; }
-                sect_combo := ComboBox {
-                    model: sections;
-                    current-value: active-echo.section-name;
-                    enabled: edit-mode;
-                    horizontal-stretch: 1;
-                }
-                if edit-mode : Button { text: "New"; clicked => { add_pnl.visible = !add_pnl.visible; } }
-            }
-
-            // Quick Section Add Panel
-            add_pnl := Rectangle {
-                visible: false; height: 40px; background: #e0e0e0; border-radius: 8px;
+    // ==========================================================
+    // MAIN: header + scrolling timeline
+    // ==========================================================
+    VerticalLayout {
+        Rectangle {
+            height: 88px;
+            VerticalLayout {
+                padding: 22px;
+                padding-bottom: 8px;
+                alignment: end;
                 HorizontalLayout {
-                    padding: 4px; spacing: 8px;
-                    new_sect_in := LineEdit {
-                        placeholder-text: "New Section Name...";
+                    spacing: 10px;
+                    Text {
+                        text: "Saga";
+                        color: Theme.clay;
+                        font-size: 26px;
+                        font-weight: 800;
                     }
-                    Button { text: "Add"; clicked => { add-section(new_sect_in.text); add_pnl.visible = false; } }
+                    Text {
+                        text: "echoes of your path";
+                        color: Theme.ink-faint;
+                        font-size: 13px;
+                        vertical-alignment: bottom;
+                    }
                 }
             }
+        }
 
-            // --- THE ECHO BODY (TEXT EDITOR) ---
-            body_in := TextEdit {
-                text: active-echo.markdown;
-                enabled: edit-mode;
-                font-size: 18px;
-                wrap: word-wrap;
-                vertical-stretch: 1; // Expands to fill the space
+        ScrollView {
+            VerticalLayout {
+                padding: 22px;
+                padding-top: 4px;
+                spacing: 4px;
+
+                for day in root.days : VerticalLayout {
+                    spacing: 10px;
+                    padding-top: 14px;
+
+                    // signpost
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Text {
+                            text: day.label;
+                            color: Theme.ink;
+                            font-size: 16px;
+                            font-weight: 800;
+                        }
+                        Text {
+                            text: day.rel;
+                            color: Theme.accent;
+                            font-size: 12px;
+                            font-weight: 700;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    // echo cards for this day
+                    for echo in day.echoes : Card {
+                        clicked => {
+                            if (!root.hold-fired) {
+                                root.open-editor(echo.id, echo.body);
+                            }
+                        }
+                        delete-requested => { root.ask-delete(echo.id); }
+                        hold-started => {
+                            root.hold-fired = false;
+                            root.hold-id = echo.id;
+                        }
+                        hold-ended => { root.hold-id = ""; }
+
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 9px;
+
+                            Text {
+                                text: echo.body;
+                                color: Theme.ink;
+                                font-size: 15px;
+                                wrap: word-wrap;
+                            }
+
+                            HorizontalLayout {
+                                spacing: 7px;
+                                alignment: start;
+                                Text {
+                                    text: echo.time;
+                                    color: Theme.ink-faint;
+                                    font-size: 12px;
+                                    vertical-alignment: center;
+                                }
+                                if echo.has-mood : Chip { text: "mood \{echo.mood}"; }
+                                if echo.has-energy : Chip { text: "energy \{echo.energy}"; }
+                                if echo.pinned : Chip { text: "pinned"; }
+                                for t in echo.tags : Chip { text: "#\{t}"; }
+                            }
+                        }
+                    }
+                }
+
+                // breathing room so the FAB never covers the last card
+                Rectangle { height: 96px; }
+            }
+        }
+    }
+
+    // ==========================================================
+    // Floating "+" button
+    // ==========================================================
+    Rectangle {
+        width: 62px;
+        height: 62px;
+        x: parent.width - self.width - 24px;
+        y: parent.height - self.height - 24px;
+        background: fab.pressed ? Theme.clay : Theme.accent;
+        border-radius: 20px;
+        drop-shadow-color: #b5651d80;
+        drop-shadow-blur: fab.has-hover ? 36px : 22px;
+        drop-shadow-offset-y: 10px;
+        animate background, drop-shadow-blur {
+            duration: Theme.quick;
+            easing: Theme.doey;
+        }
+
+        Text {
+            width: 100%;
+            height: 100%;
+            text: "+";
+            color: Theme.on-accent;
+            font-size: 32px;
+            font-weight: 700;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+
+        fab := TouchArea {
+            clicked => { root.open-new(); }
+        }
+    }
+
+    // ==========================================================
+    // Composer overlay (create / edit). Always in the tree, gated
+    // by `composer-open`, so the TextEdit is compiled normally.
+    // ==========================================================
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        visible: composer-open;
+
+        // dim scrim
+        Rectangle {
+            background: #3e2723;
+            opacity: composer-open ? 0.34 : 0.0;
+            animate opacity { duration: Theme.base; }
+            TouchArea {
+                clicked => { root.composer-open = false; }
+            }
+        }
+
+        // panel — slides up from the bottom and fades in
+        Rectangle {
+            width: Math.min(520px, parent.width - 32px);
+            height: Math.min(560px, parent.height - 80px);
+            x: (parent.width - self.width) / 2;
+            y: composer-open ? (parent.height - self.height) / 2 : parent.height;
+            opacity: composer-open ? 1.0 : 0.0;
+            background: Theme.surface;
+            border-radius: 20px;
+            border-width: 1px;
+            border-color: Theme.line;
+            drop-shadow-color: #3e272366;
+            drop-shadow-blur: 60px;
+            drop-shadow-offset-y: 22px;
+            animate y, opacity {
+                duration: Theme.base;
+                easing: Theme.doey;
             }
 
-            // Footer Timestamp (Visible only in View mode)
-            if !edit-mode : Text {
-                text: "Echoed on " + active-echo.day;
-                font-size: 12px;
-                color: #8d7d6f;
-                horizontal-alignment: center;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 14px;
+
+                HorizontalLayout {
+                    Text {
+                        text: root.draft-id == "" ? "New Echo" : "Edit Echo";
+                        color: Theme.ink;
+                        font-size: 18px;
+                        font-weight: 800;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    GhostButton {
+                        text: "✕";
+                        width: 42px;
+                        clicked => { root.composer-open = false; }
+                    }
+                }
+
+                body-edit := TextEdit {
+                    text: root.draft-body;
+                    wrap: word-wrap;
+                    vertical-stretch: 1;
+                }
+
+                HorizontalLayout {
+                    spacing: 10px;
+                    if root.draft-id != "" : GhostButton {
+                        text: "Delete";
+                        width: 110px;
+                        clicked => {
+                            root.delete-echo(root.draft-id);
+                            root.composer-open = false;
+                        }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    PrimaryButton {
+                        text: "Save Echo";
+                        width: 150px;
+                        clicked => {
+                            if (root.draft-id == "") {
+                                root.create-echo(root.draft-day, body-edit.text);
+                            } else {
+                                root.update-echo(root.draft-id, body-edit.text);
+                            }
+                            root.composer-open = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ==========================================================
+    // Delete confirmation (from long-press / right-click)
+    // ==========================================================
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        visible: confirm-open;
+
+        Rectangle {
+            background: #3e2723;
+            opacity: confirm-open ? 0.34 : 0.0;
+            animate opacity { duration: Theme.base; }
+            TouchArea {
+                clicked => { root.confirm-open = false; }
+            }
+        }
+
+        Rectangle {
+            width: Math.min(360px, parent.width - 40px);
+            height: 190px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            background: Theme.surface;
+            border-radius: 18px;
+            border-width: 1px;
+            border-color: Theme.line;
+            drop-shadow-color: #3e272366;
+            drop-shadow-blur: 50px;
+            drop-shadow-offset-y: 18px;
+            opacity: confirm-open ? 1.0 : 0.0;
+            animate opacity { duration: Theme.quick; }
+
+            VerticalLayout {
+                padding: 22px;
+                spacing: 8px;
+                Text {
+                    text: "Delete this Echo?";
+                    color: Theme.ink;
+                    font-size: 17px;
+                    font-weight: 800;
+                    horizontal-alignment: center;
+                }
+                Text {
+                    text: "This can't be undone.";
+                    color: Theme.ink-faint;
+                    font-size: 13px;
+                    horizontal-alignment: center;
+                }
+                Rectangle { height: 6px; }
+                HorizontalLayout {
+                    spacing: 10px;
+                    GhostButton {
+                        text: "Cancel";
+                        clicked => { root.confirm-open = false; }
+                    }
+                    PrimaryButton {
+                        text: "Delete";
+                        clicked => {
+                            root.delete-echo(root.confirm-id);
+                            root.confirm-open = false;
+                        }
+                    }
+                }
             }
         }
     }
