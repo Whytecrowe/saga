@@ -1,7 +1,6 @@
 use super::*;
 use chrono::{DateTime, Days, Local, Months, NaiveDate, NaiveTime, TimeZone};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChecklistItem {
@@ -38,8 +37,8 @@ pub struct TaskData {
 }
 
 impl Echo {
-    pub fn new_task(day: NaiveDate, section_id: Uuid, title: String) -> Self {
-        Echo::new(day, section_id, title, EchoContent::TaskEcho(TaskData::new()))
+    pub fn new_task(day: NaiveDate, title: String) -> Self {
+        Echo::new(day, title, EchoContent::TaskEcho(TaskData::new()))
     }
 
     pub fn as_task(&self) -> Option<&TaskData> {
@@ -70,7 +69,6 @@ impl Echo {
 
         let mut next_echo = Echo::new(
             next_date,
-            self.section_id,
             self.title.clone(),
             EchoContent::TaskEcho(next_task),
         );
@@ -258,13 +256,11 @@ pub fn tasks_by_priority(echoes: &[Echo]) -> Vec<&Echo> {
 mod tests {
     use super::*;
     use chrono::{Local, NaiveDate, NaiveTime};
-    use uuid::Uuid;
 
     #[test]
     fn test_task_echo() {
         let echo = Echo::new(
             Local::now().date_naive(),
-            Uuid::new_v4(),
             "Buy groceries".to_string(),
             EchoContent::TaskEcho(TaskData {
                 description: None,
@@ -455,7 +451,6 @@ mod tests {
     fn test_spawn_next_occurrence() {
         let mut echo = Echo::new_task(
             NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
-            Uuid::new_v4(),
             "Weekly groceries".to_string(),
         );
         {
@@ -485,7 +480,6 @@ mod tests {
     fn test_as_task_on_non_task() {
         let echo = Echo::new(
             Local::now().date_naive(),
-            Uuid::new_v4(),
             "Plain".to_string(),
             EchoContent::PlainEcho(PlainData {
                 markdown: "hi".to_string(),
@@ -496,22 +490,21 @@ mod tests {
 
     #[test]
     fn test_task_query_helpers() {
-        let section = Uuid::new_v4();
         let day = NaiveDate::from_ymd_opt(2026, 6, 1).unwrap();
 
-        let mut low_open = Echo::new_task(day, section, "Low open".to_string());
+        let mut low_open = Echo::new_task(day, "Low open".to_string());
         low_open.as_task_mut().unwrap().set_priority(Priority::Low);
 
-        let mut critical_open = Echo::new_task(day, section, "Critical open".to_string());
+        let mut critical_open = Echo::new_task(day, "Critical open".to_string());
         critical_open
             .as_task_mut()
             .unwrap()
             .set_priority(Priority::Critical);
 
-        let mut done = Echo::new_task(day, section, "Done".to_string());
+        let mut done = Echo::new_task(day, "Done".to_string());
         done.as_task_mut().unwrap().complete();
 
-        let mut overdue = Echo::new_task(day, section, "Overdue".to_string());
+        let mut overdue = Echo::new_task(day, "Overdue".to_string());
         overdue
             .as_task_mut()
             .unwrap()
@@ -519,7 +512,6 @@ mod tests {
 
         let plain = Echo::new(
             day,
-            section,
             "Note".to_string(),
             EchoContent::PlainEcho(PlainData {
                 markdown: "x".to_string(),

@@ -17,7 +17,6 @@ pub enum EchoContent {
 pub struct Echo {
     pub id: Uuid,
     pub day: NaiveDate,
-    pub section_id: Uuid,
     pub title: String,
     pub content: EchoContent,
     pub mood: Option<u8>,
@@ -30,13 +29,12 @@ pub struct Echo {
 }
 
 impl Echo {
-    pub fn new(day: NaiveDate, section_id: Uuid, title: String, content: EchoContent) -> Self {
+    pub fn new(day: NaiveDate, title: String, content: EchoContent) -> Self {
         let now = Local::now();
 
         Self {
             id: Uuid::new_v4(),
             day,
-            section_id,
             title,
             content,
             mood: None,
@@ -90,11 +88,10 @@ impl fmt::Display for Echo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{} {}\n  Day: {}\n  Section: {}\n  Created: {}",
+            "{} {}\n  Day: {}\n  Created: {}",
             self.content_type_name(),
             self.id,
             self.day,
-            self.section_id,
             self.created_at.format("%b %e, %Y at %l:%M %p"),
         )
     }
@@ -104,13 +101,11 @@ impl fmt::Display for Echo {
 mod tests {
     use super::*;
     use chrono::Local;
-    use uuid::Uuid;
 
     #[test]
     fn test_plain_echo() {
         let echo = Echo::new(
             Local::now().date_naive(),
-            Uuid::new_v4(),
             "First Echo".to_string(),
             EchoContent::PlainEcho(PlainData {
                 markdown: "Hello World!".to_string(),
@@ -133,7 +128,6 @@ mod tests {
     fn test_update_content() {
         let mut echo = Echo::new(
             Local::now().date_naive(),
-            Uuid::new_v4(),
             "My Echo".to_string(),
             EchoContent::PlainEcho(PlainData {
                 markdown: "Original".to_string(),
