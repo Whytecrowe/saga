@@ -1,7 +1,7 @@
 use chrono::NaiveDate;
 use rusqlite::Connection;
 use saga_core::model::{
-    Echo, EchoContent, PlannedExercise, Section, WorkoutProgram, WorkoutTemplate,
+    Echo, EchoContent, PlannedExercise, WorkoutProgram, WorkoutTemplate,
     ECHO_TYPE_MEDITATION, ECHO_TYPE_TASK, ECHO_TYPE_WORKOUT,
 };
 use std::path::Path;
@@ -21,8 +21,6 @@ pub enum StorageError {
     Database(#[from] rusqlite::Error),
     #[error("Echo not found: {0}")]
     EchoNotFound(Uuid),
-    #[error("Section not found: {0}")]
-    SectionNotFound(Uuid),
     #[error("Program not found: {0}")]
     ProgramNotFound(Uuid),
     #[error("Template not found: {0}")]
@@ -47,86 +45,15 @@ impl Storage {
         Ok(Self { conn })
     }
 
-    pub fn save_section(&self, section: &Section) -> Result<()> {
-        self.conn.execute(
-            "INSERT INTO sections (id, name, sort_order) VALUES (?1, ?2, ?3)",
-            rusqlite::params![section.id.to_string(), section.name, section.sort_order],
-        )?;
-        Ok(())
-    }
-
-    pub fn get_section(&self, section_id: &Uuid) -> Result<Option<Section>> {
-        let result = self.conn.query_row(
-            "SELECT id, name, sort_order FROM sections WHERE id = ?1",
-            rusqlite::params![section_id.to_string()],
-            |row| {
-                Ok(Section {
-                    id: parse_from_text(row, 0)?,
-                    name: row.get(1)?,
-                    sort_order: row.get(2)?,
-                })
-            },
-        );
-
-        match result {
-            Ok(section) => Ok(Some(section)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(StorageError::Database(e)),
-        }
-    }
-
-    pub fn get_all_sections(&self) -> Result<Vec<Section>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id, name, sort_order FROM sections ORDER BY sort_order")?;
-
-        let sections = stmt.query_map([], |row| {
-            Ok(Section {
-                id: parse_from_text(row, 0)?,
-                name: row.get(1)?,
-                sort_order: row.get(2)?,
-            })
-        })?;
-        Ok(sections.collect::<rusqlite::Result<Vec<_>>>()?)
-    }
-
-    pub fn update_section(&self, section: &Section) -> Result<()> {
-        let rows_affected = self.conn.execute(
-            "UPDATE sections SET name = ?1, sort_order = ?2 WHERE id = ?3",
-            rusqlite::params![section.name, section.sort_order, section.id.to_string()],
-        )?;
-        if rows_affected == 0 {
-            return Err(StorageError::SectionNotFound(section.id));
-        }
-        Ok(())
-    }
-
-    pub fn delete_section(&self, section_id: &Uuid) -> Result<()> {
-        let rows_affected = self.conn.execute(
-            "DELETE FROM sections WHERE id = ?1",
-            rusqlite::params![section_id.to_string()],
-        )?;
-        if rows_affected == 0 {
-            return Err(StorageError::SectionNotFound(*section_id));
-        }
-        Ok(())
-    }
-
-    pub fn get_next_sort_order(&self) -> Result<i32> {
-        let sections = self.get_all_sections()?;
-        let max = sections.iter().map(|s| s.sort_order).max().unwrap_or(-1);
-        Ok(max + 1)
-    }
-
     pub fn save_echo(&self, echo: &Echo) -> Result<()> {
         let content_type = echo.content_type_name().to_string();
         let content_json = serde_json::to_string(&echo.content)?;
         let tags_json = serde_json::to_string(&echo.tags)?;
         let linked_echo_id = echo.linked_echo_id.map(|id| id.to_string());
         self.conn.execute(
-            "INSERT INTO echoes (id, day, section_id, title, content_type, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            "INSERT INTO echoes (id, day, title, content_type, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             rusqlite::params![
-                echo.id.to_string(), echo.day.to_string(), echo.section_id.to_string(), echo.title,
+                echo.id.to_string(), echo.day.to_string(), echo.title,
                 content_type, content_json,
                 echo.mood.map(|v| v as i64), echo.energy.map(|v| v as i64),
                 echo.pinned as i64, tags_json, linked_echo_id,
@@ -138,7 +65,7 @@ impl Storage {
 
     pub fn get_echo(&self, echo_id: &Uuid) -> Result<Option<Echo>> {
         let result = self.conn.query_row(
-            "SELECT id, day, section_id, title, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at FROM echoes WHERE id = ?1",
+            "SELECT id, day, title, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at FROM echoes WHERE id = ?1",
             rusqlite::params![echo_id.to_string()],
             map_echo_row,
         );
@@ -155,9 +82,9 @@ impl Storage {
         let tags_json = serde_json::to_string(&echo.tags)?;
         let linked_echo_id = echo.linked_echo_id.map(|id| id.to_string());
         let rows_affected = self.conn.execute(
-            "UPDATE echoes SET day = ?1, section_id = ?2, title = ?3, content_type = ?4, content_json = ?5, mood = ?6, energy = ?7, pinned = ?8, tags = ?9, linked_echo_id = ?10, updated_at = ?11 WHERE id = ?12",
+            "UPDATE echoes SET day = ?1, title = ?2, content_type = ?3, content_json = ?4, mood = ?5, energy = ?6, pinned = ?7, tags = ?8, linked_echo_id = ?9, updated_at = ?10 WHERE id = ?11",
             rusqlite::params![
-                echo.day.to_string(), echo.section_id.to_string(), echo.title,
+                echo.day.to_string(), echo.title,
                 content_type, content_json,
                 echo.mood.map(|v| v as i64), echo.energy.map(|v| v as i64),
                 echo.pinned as i64, tags_json, linked_echo_id,
@@ -183,7 +110,7 @@ impl Storage {
     }
     pub fn get_echoes_for_day(&self, date: NaiveDate) -> Result<Vec<Echo>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, day, section_id, title, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at FROM echoes WHERE day = ?1 ORDER BY created_at",
+            "SELECT id, day, title, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at FROM echoes WHERE day = ?1 ORDER BY created_at",
         )?;
         let echoes = stmt.query_map(rusqlite::params![date.to_string()], map_echo_row)?;
         echoes.map(|r| r.map_err(StorageError::Database)?).collect()
@@ -191,7 +118,7 @@ impl Storage {
 
     pub fn get_all_echoes(&self) -> Result<Vec<Echo>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, day, section_id, title, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at FROM echoes ORDER BY day DESC, created_at DESC",
+            "SELECT id, day, title, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at FROM echoes ORDER BY day DESC, created_at DESC",
         )?;
         let echoes = stmt.query_map([], map_echo_row)?;
         echoes.map(|r| r.map_err(StorageError::Database)?).collect()
@@ -199,7 +126,7 @@ impl Storage {
 
     pub fn get_all_tasks(&self) -> Result<Vec<Echo>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, day, section_id, title, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at FROM echoes WHERE content_type = ?1 ORDER BY day DESC, created_at DESC",
+            "SELECT id, day, title, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at FROM echoes WHERE content_type = ?1 ORDER BY day DESC, created_at DESC",
         )?;
         let echoes = stmt.query_map(rusqlite::params![ECHO_TYPE_TASK], map_echo_row)?;
         echoes.map(|r| r.map_err(StorageError::Database)?).collect()
@@ -340,7 +267,7 @@ impl Storage {
 
     pub fn get_all_workouts(&self) -> Result<Vec<Echo>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, day, section_id, title, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at FROM echoes WHERE content_type = ?1 ORDER BY day DESC, created_at DESC",
+            "SELECT id, day, title, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at FROM echoes WHERE content_type = ?1 ORDER BY day DESC, created_at DESC",
         )?;
         let echoes = stmt.query_map(rusqlite::params![ECHO_TYPE_WORKOUT], map_echo_row)?;
         echoes.map(|r| r.map_err(StorageError::Database)?).collect()
@@ -348,7 +275,7 @@ impl Storage {
 
     pub fn get_recent_workouts(&self, limit: usize) -> Result<Vec<Echo>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, day, section_id, title, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at FROM echoes WHERE content_type = ?1 ORDER BY day DESC, created_at DESC LIMIT ?2",
+            "SELECT id, day, title, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at FROM echoes WHERE content_type = ?1 ORDER BY day DESC, created_at DESC LIMIT ?2",
         )?;
         let echoes = stmt.query_map(
             rusqlite::params![ECHO_TYPE_WORKOUT, limit as i64],
@@ -359,7 +286,7 @@ impl Storage {
 
     pub fn get_all_meditations(&self) -> Result<Vec<Echo>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, day, section_id, title, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at FROM echoes WHERE content_type = ?1 ORDER BY day DESC, created_at DESC",
+            "SELECT id, day, title, content_json, mood, energy, pinned, tags, linked_echo_id, created_at, updated_at FROM echoes WHERE content_type = ?1 ORDER BY day DESC, created_at DESC",
         )?;
         let echoes = stmt.query_map(rusqlite::params![ECHO_TYPE_MEDITATION], map_echo_row)?;
         echoes.map(|r| r.map_err(StorageError::Database)?).collect()
@@ -369,16 +296,15 @@ impl Storage {
 fn map_echo_row(row: &rusqlite::Row) -> rusqlite::Result<Result<Echo>> {
     let id: Uuid = parse_from_text(row, 0)?;
     let day: NaiveDate = parse_from_text(row, 1)?;
-    let section_id: Uuid = parse_from_text(row, 2)?;
-    let title: String = row.get(3)?;
-    let content_json: String = row.get(4)?;
-    let mood: Option<i64> = row.get(5)?;
-    let energy: Option<i64> = row.get(6)?;
-    let pinned: i64 = row.get(7)?;
-    let tags_json: String = row.get(8)?;
-    let linked_echo_id_str: Option<String> = row.get(9)?;
-    let created_at = parse_from_text(row, 10)?;
-    let updated_at = parse_from_text(row, 11)?;
+    let title: String = row.get(2)?;
+    let content_json: String = row.get(3)?;
+    let mood: Option<i64> = row.get(4)?;
+    let energy: Option<i64> = row.get(5)?;
+    let pinned: i64 = row.get(6)?;
+    let tags_json: String = row.get(7)?;
+    let linked_echo_id_str: Option<String> = row.get(8)?;
+    let created_at = parse_from_text(row, 9)?;
+    let updated_at = parse_from_text(row, 10)?;
 
     let content: EchoContent = match serde_json::from_str(&content_json) {
         Ok(c) => c,
@@ -394,7 +320,7 @@ fn map_echo_row(row: &rusqlite::Row) -> rusqlite::Result<Result<Echo>> {
             Err(e) => {
                 return Ok(Err(StorageError::Database(
                     rusqlite::Error::FromSqlConversionFailure(
-                        9,
+                        8,
                         rusqlite::types::Type::Text,
                         Box::new(e),
                     ),
@@ -407,7 +333,6 @@ fn map_echo_row(row: &rusqlite::Row) -> rusqlite::Result<Result<Echo>> {
     Ok(Ok(Echo {
         id,
         day,
-        section_id,
         title,
         content,
         mood: mood.map(|v| v as u8),
@@ -476,116 +401,11 @@ mod tests {
     };
     use uuid::Uuid;
 
-    fn make_section(storage: &Storage) -> Section {
-        let section = Section {
-            id: Uuid::new_v4(),
-            name: "Test Section".to_string(),
-            sort_order: 0,
-        };
-        storage
-            .save_section(&section)
-            .expect("Failed to save section");
-        section
-    }
-
-    #[test]
-    fn test_save_section() {
-        let storage = Storage::new(":memory:").expect("Memory storage creation failed!");
-        let section = Section {
-            id: Uuid::new_v4(),
-            name: "Meditation".to_string(),
-            sort_order: 0,
-        };
-        storage
-            .save_section(&section)
-            .expect("Creating Section failed!");
-    }
-
-    #[test]
-    fn test_get_section() {
-        let storage = Storage::new(":memory:").expect("Failed to create storage");
-        let section = Section {
-            id: Uuid::new_v4(),
-            name: "Meditation".to_string(),
-            sort_order: 0,
-        };
-        storage
-            .save_section(&section)
-            .expect("Failed to create section");
-        let found = storage.get_section(&section.id).expect("Query failed");
-        assert!(found.is_some());
-        assert_eq!(found.unwrap().name, "Meditation");
-        let not_found = storage.get_section(&Uuid::new_v4()).expect("Query failed");
-        assert!(not_found.is_none());
-    }
-
-    #[test]
-    fn test_get_all_sections() {
-        let storage = Storage::new(":memory:").expect("Failed to create storage");
-        let s1 = Section {
-            id: Uuid::new_v4(),
-            name: "Meditation".to_string(),
-            sort_order: 0,
-        };
-        let s2 = Section {
-            id: Uuid::new_v4(),
-            name: "Work".to_string(),
-            sort_order: 1,
-        };
-        storage
-            .save_section(&s1)
-            .expect("Failed to create section 1");
-        storage
-            .save_section(&s2)
-            .expect("Failed to create section 2");
-        let sections = storage.get_all_sections().expect("Failed to get sections");
-        assert_eq!(sections.len(), 2);
-        assert_eq!(sections[0].name, "Meditation");
-        assert_eq!(sections[1].name, "Work");
-    }
-
-    #[test]
-    fn test_update_section() {
-        let storage = Storage::new(":memory:").expect("Failed to create storage");
-        let mut section = Section {
-            id: Uuid::new_v4(),
-            name: "Meditation".to_string(),
-            sort_order: 0,
-        };
-        storage.save_section(&section).expect("Failed to create");
-        section.name = "Mindfulness".to_string();
-        section.sort_order = 5;
-        storage.update_section(&section).expect("Failed to update");
-        let updated = storage
-            .get_section(&section.id)
-            .expect("Query failed")
-            .unwrap();
-        assert_eq!(updated.name, "Mindfulness");
-        assert_eq!(updated.sort_order, 5);
-    }
-
-    #[test]
-    fn test_delete_section() {
-        let storage = Storage::new(":memory:").expect("Failed to create storage");
-        let section = Section {
-            id: Uuid::new_v4(),
-            name: "Meditation".to_string(),
-            sort_order: 0,
-        };
-        storage.save_section(&section).expect("Failed to create");
-        storage
-            .delete_section(&section.id)
-            .expect("Failed to delete");
-        let result = storage.get_section(&section.id).expect("Query failed");
-        assert!(result.is_none());
-    }
     #[test]
     fn test_create_plain_echo() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
-        let section = make_section(&storage);
         let echo = Echo::new(
             Local::now().date_naive(),
-            section.id,
             "Echo title".to_string(),
             EchoContent::PlainEcho(PlainData {
                 markdown: "Hello world".to_string(),
@@ -606,10 +426,8 @@ mod tests {
     #[test]
     fn test_update_echo() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
-        let section = make_section(&storage);
         let mut echo = Echo::new(
             Local::now().date_naive(),
-            section.id,
             "Echo title".to_string(),
             EchoContent::PlainEcho(PlainData {
                 markdown: "Original".to_string(),
@@ -633,12 +451,10 @@ mod tests {
     #[test]
     fn test_get_echoes_for_day() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
-        let section = make_section(&storage);
         let today = Local::now().date_naive();
         let yesterday = today - chrono::Days::new(1);
         let echo1 = Echo::new(
             today,
-            section.id,
             "Title 1".to_string(),
             EchoContent::PlainEcho(PlainData {
                 markdown: "Today first".to_string(),
@@ -646,7 +462,6 @@ mod tests {
         );
         let echo2 = Echo::new(
             today,
-            section.id,
             "Title 2".to_string(),
             EchoContent::PlainEcho(PlainData {
                 markdown: "Today second".to_string(),
@@ -654,7 +469,6 @@ mod tests {
         );
         let echo3 = Echo::new(
             yesterday,
-            section.id,
             "Title 3".to_string(),
             EchoContent::PlainEcho(PlainData {
                 markdown: "Yesterday".to_string(),
@@ -676,10 +490,8 @@ mod tests {
     #[test]
     fn test_meditation_echo_roundtrip() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
-        let section = make_section(&storage);
         let echo = Echo::new(
             Local::now().date_naive(),
-            section.id,
             "Morning Sit".to_string(),
             EchoContent::MeditationEcho(MeditationData {
                 markdown: Some("Felt calm.".to_string()),
@@ -703,10 +515,8 @@ mod tests {
     #[test]
     fn test_task_echo_roundtrip() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
-        let section = make_section(&storage);
         let echo = Echo::new(
             Local::now().date_naive(),
-            section.id,
             "Buy groceries".to_string(),
             EchoContent::TaskEcho(TaskData {
                 description: None,
@@ -744,10 +554,8 @@ mod tests {
     #[test]
     fn test_workout_echo_roundtrip() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
-        let section = make_section(&storage);
         let echo = Echo::new(
             Local::now().date_naive(),
-            section.id,
             "Push Day".to_string(),
             EchoContent::WorkoutEcho(WorkoutData {
                 template_id: None,
@@ -782,10 +590,8 @@ mod tests {
     #[test]
     fn test_echo_shared_fields_roundtrip() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
-        let section = make_section(&storage);
         let mut echo = Echo::new(
             Local::now().date_naive(),
-            section.id,
             "Tagged Echo".to_string(),
             EchoContent::PlainEcho(PlainData {
                 markdown: "With metadata".to_string(),
@@ -806,19 +612,17 @@ mod tests {
     #[test]
     fn test_get_all_tasks() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
-        let section = make_section(&storage);
         let day = Local::now().date_naive();
 
         let plain = Echo::new(
             day,
-            section.id,
             "Note".to_string(),
             EchoContent::PlainEcho(PlainData {
                 markdown: "hi".to_string(),
             }),
         );
-        let task1 = Echo::new_task(day, section.id, "Task one".to_string());
-        let task2 = Echo::new_task(day, section.id, "Task two".to_string());
+        let task1 = Echo::new_task(day, "Task one".to_string());
+        let task2 = Echo::new_task(day, "Task two".to_string());
 
         storage.save_echo(&plain).expect("Failed to save plain");
         storage.save_echo(&task1).expect("Failed to save task1");
@@ -945,12 +749,10 @@ mod tests {
     #[test]
     fn test_get_all_and_recent_workouts() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
-        let section = make_section(&storage);
         let today = Local::now().date_naive();
 
         let plain = Echo::new(
             today,
-            section.id,
             "Note".to_string(),
             EchoContent::PlainEcho(PlainData {
                 markdown: "hi".to_string(),
@@ -958,9 +760,9 @@ mod tests {
         );
         storage.save_echo(&plain).expect("Failed to save plain");
 
-        let w1 = Echo::new_workout(today - chrono::Days::new(2), section.id, "Old".to_string());
-        let w2 = Echo::new_workout(today - chrono::Days::new(1), section.id, "Mid".to_string());
-        let w3 = Echo::new_workout(today, section.id, "New".to_string());
+        let w1 = Echo::new_workout(today - chrono::Days::new(2), "Old".to_string());
+        let w2 = Echo::new_workout(today - chrono::Days::new(1), "Mid".to_string());
+        let w3 = Echo::new_workout(today, "New".to_string());
         storage.save_echo(&w1).expect("Failed to save w1");
         storage.save_echo(&w2).expect("Failed to save w2");
         storage.save_echo(&w3).expect("Failed to save w3");
@@ -979,19 +781,17 @@ mod tests {
     #[test]
     fn test_get_all_meditations() {
         let storage = Storage::new(":memory:").expect("Failed to create storage");
-        let section = make_section(&storage);
         let day = Local::now().date_naive();
 
         let plain = Echo::new(
             day,
-            section.id,
             "Note".to_string(),
             EchoContent::PlainEcho(PlainData {
                 markdown: "hi".to_string(),
             }),
         );
-        let m1 = Echo::new_meditation(day, section.id, "Sit one".to_string(), 20);
-        let m2 = Echo::new_meditation(day, section.id, "Sit two".to_string(), 10);
+        let m1 = Echo::new_meditation(day, "Sit one".to_string(), 20);
+        let m2 = Echo::new_meditation(day, "Sit two".to_string(), 10);
 
         storage.save_echo(&plain).expect("Failed to save plain");
         storage.save_echo(&m1).expect("Failed to save m1");

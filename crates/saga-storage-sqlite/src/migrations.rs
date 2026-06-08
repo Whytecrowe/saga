@@ -30,16 +30,9 @@ pub(crate) fn run_migrations(conn: &mut Connection) -> Result<()> {
 
 fn migration_001_initial(tx: &Transaction) -> rusqlite::Result<()> {
     tx.execute_batch(
-        "CREATE TABLE IF NOT EXISTS sections (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            sort_order INTEGER NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS echoes (
+        "CREATE TABLE IF NOT EXISTS echoes (
             id TEXT PRIMARY KEY,
             day TEXT NOT NULL,
-            section_id TEXT NOT NULL,
             title TEXT NOT NULL,
             content_type TEXT NOT NULL,
             content_json TEXT NOT NULL,
@@ -49,8 +42,7 @@ fn migration_001_initial(tx: &Transaction) -> rusqlite::Result<()> {
             tags TEXT NOT NULL DEFAULT '[]',
             linked_echo_id TEXT,
             created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            FOREIGN KEY (section_id) REFERENCES sections(id)
+            updated_at TEXT NOT NULL
         );
 
         CREATE INDEX IF NOT EXISTS idx_echoes_day ON echoes(day);
@@ -101,17 +93,17 @@ mod tests {
     #[test]
     fn test_adopts_existing_database() {
         let mut conn = Connection::open_in_memory().expect("Failed to open memory db");
+        // Simulate a pre-existing DB with some prior table and data.
         conn.execute_batch(
-            "CREATE TABLE sections (
+            "CREATE TABLE legacy_marker (
                 id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                sort_order INTEGER NOT NULL
+                value TEXT NOT NULL
             );",
         )
         .expect("Failed to pre-create legacy table");
         conn.execute(
-            "INSERT INTO sections (id, name, sort_order) VALUES (?1, ?2, ?3)",
-            rusqlite::params!["legacy-id", "Legacy", 0],
+            "INSERT INTO legacy_marker (id, value) VALUES (?1, ?2)",
+            rusqlite::params!["legacy-id", "kept"],
         )
         .expect("Failed to insert legacy row");
 
@@ -123,8 +115,8 @@ mod tests {
         assert_eq!(version, MIGRATIONS.len() as i32);
 
         let count: i32 = conn
-            .query_row("SELECT COUNT(*) FROM sections", [], |row| row.get(0))
-            .expect("Failed to count sections");
+            .query_row("SELECT COUNT(*) FROM legacy_marker", [], |row| row.get(0))
+            .expect("Failed to count legacy rows");
         assert_eq!(count, 1);
     }
 }
