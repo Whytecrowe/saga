@@ -2,8 +2,7 @@ import { Theme } from "theme.slint";
 import { Card, PrimaryButton, GhostButton, Chip } from "components.slint";
 import { TextEdit, ScrollView } from "std-widgets.slint";
 
-// One Echo, flattened for the UI. (mood/energy/pinned/tags are
-// here now so Tasks + shared-fields in 1B/1C don't reshape it.)
+// One Echo, flattened for display on the timeline.
 export struct EchoItem {
     id: string,
     body: string,
@@ -16,7 +15,7 @@ export struct EchoItem {
     tags: [string],
 }
 
-// A day on the timeline, holding its Echoes.
+// A single day on the timeline, holding that day's Echoes.
 export struct DaySignpost {
     iso: string,
     label: string,
@@ -32,25 +31,24 @@ export component App inherits Window {
     default-font-size: 15px;
     background: Theme.bg;
 
-    // ---- data from Rust ----
+    // Data supplied by Rust.
     in property <[DaySignpost]> days;
     in property <string> today-iso;
 
-    // ---- composer state ----
+    // Composer state. draft-id == "" means "creating a new Echo".
     property <bool> composer-open: false;
-    property <string> draft-id: "";   // "" = creating a new Echo
+    property <string> draft-id: "";
     property <string> draft-day: "";
     property <string> draft-body: "";
 
-    // ---- delete-confirm state ----
+    // Delete-menu state.
     property <bool> confirm-open: false;
     property <string> confirm-id: "";
 
-    // ---- long-press tracking (one shared timer at the root) ----
+    // Long-press bookkeeping for the shared root Timer below.
     property <string> hold-id: "";
     property <bool> hold-fired: false;
 
-    // ---- events up to Rust ----
     callback create-echo(string, string);   // (day-iso, body)
     callback update-echo(string, string);    // (id, body)
     callback delete-echo(string);            // (id)
@@ -71,7 +69,7 @@ export component App inherits Window {
         root.confirm-open = true;
     }
 
-    // Fires ~0.5s after a card press begins, unless the finger lifted
+    // Fires ~0.5s after a card press begins, unless the finger lifts
     // first (which clears hold-id and stops the timer).
     Timer {
         interval: 500ms;
@@ -83,9 +81,7 @@ export component App inherits Window {
         }
     }
 
-    // ==========================================================
-    // MAIN: header + scrolling timeline
-    // ==========================================================
+    // ---- header + scrolling timeline ----
     VerticalLayout {
         Rectangle {
             height: 88px;
@@ -121,7 +117,7 @@ export component App inherits Window {
                     spacing: 10px;
                     padding-top: 14px;
 
-                    // signpost
+                    // day signpost
                     HorizontalLayout {
                         spacing: 10px;
                         Text {
@@ -139,7 +135,7 @@ export component App inherits Window {
                         }
                     }
 
-                    // echo cards for this day
+                    // cards for this day
                     for echo in day.echoes : Card {
                         clicked => {
                             if (!root.hold-fired) {
@@ -164,6 +160,7 @@ export component App inherits Window {
                                 wrap: word-wrap;
                             }
 
+                            // timestamp + metadata pills
                             HorizontalLayout {
                                 spacing: 7px;
                                 alignment: start;
@@ -182,15 +179,13 @@ export component App inherits Window {
                     }
                 }
 
-                // breathing room so the FAB never covers the last card
+                // clearance so the FAB never covers the last card
                 Rectangle { height: 96px; }
             }
         }
     }
 
-    // ==========================================================
-    // Floating "+" button
-    // ==========================================================
+    // ---- floating "+" button ----
     Rectangle {
         width: 62px;
         height: 62px;
@@ -222,16 +217,14 @@ export component App inherits Window {
         }
     }
 
-    // ==========================================================
-    // Composer overlay (create / edit). Always in the tree, gated
-    // by `composer-open`, so the TextEdit is compiled normally.
-    // ==========================================================
+    // ---- composer overlay (create / edit) ----
+    // Kept in the tree and gated by `visible` rather than `if`, so the
+    // TextEdit compiles cleanly (see the Slint 1.9.1 note in components).
     Rectangle {
         width: 100%;
         height: 100%;
         visible: composer-open;
 
-        // dim scrim
         Rectangle {
             background: #3e2723;
             opacity: composer-open ? 0.34 : 0.0;
@@ -241,7 +234,7 @@ export component App inherits Window {
             }
         }
 
-        // panel — slides up from the bottom and fades in
+        // panel slides up from the bottom and fades in
         Rectangle {
             width: Math.min(520px, parent.width - 32px);
             height: Math.min(560px, parent.height - 80px);
@@ -314,9 +307,7 @@ export component App inherits Window {
         }
     }
 
-    // ==========================================================
-    // Delete confirmation (from long-press / right-click)
-    // ==========================================================
+    // ---- delete menu (long-press / right-click) ----
     Rectangle {
         width: 100%;
         height: 100%;
@@ -332,50 +323,37 @@ export component App inherits Window {
         }
 
         Rectangle {
-            width: Math.min(360px, parent.width - 40px);
-            height: 190px;
+            width: 170px;
+            height: 50px;
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             background: Theme.surface;
-            border-radius: 18px;
+            border-radius: 14px;
             border-width: 1px;
             border-color: Theme.line;
             drop-shadow-color: #3e272366;
-            drop-shadow-blur: 50px;
-            drop-shadow-offset-y: 18px;
+            drop-shadow-blur: 40px;
+            drop-shadow-offset-y: 14px;
             opacity: confirm-open ? 1.0 : 0.0;
             animate opacity { duration: Theme.quick; }
 
-            VerticalLayout {
-                padding: 22px;
-                spacing: 8px;
-                Text {
-                    text: "Delete this Echo?";
-                    color: Theme.ink;
-                    font-size: 17px;
-                    font-weight: 800;
-                    horizontal-alignment: center;
-                }
-                Text {
-                    text: "This can't be undone.";
-                    color: Theme.ink-faint;
-                    font-size: 13px;
-                    horizontal-alignment: center;
-                }
-                Rectangle { height: 6px; }
-                HorizontalLayout {
-                    spacing: 10px;
-                    GhostButton {
-                        text: "Cancel";
-                        clicked => { root.confirm-open = false; }
-                    }
-                    PrimaryButton {
-                        text: "Delete";
-                        clicked => {
-                            root.delete-echo(root.confirm-id);
-                            root.confirm-open = false;
-                        }
-                    }
+            Rectangle {
+                background: del-area.has-hover ? #c0392b14 : transparent;
+                border-radius: 14px;
+                animate background { duration: Theme.quick; }
+            }
+            Text {
+                text: "Delete";
+                color: #c0392b;
+                font-size: 15px;
+                font-weight: 700;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            del-area := TouchArea {
+                clicked => {
+                    root.delete-echo(root.confirm-id);
+                    root.confirm-open = false;
                 }
             }
         }

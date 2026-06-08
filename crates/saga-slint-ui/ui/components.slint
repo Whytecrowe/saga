@@ -1,19 +1,16 @@
-// ============================================================
-// Reusable building blocks. Each exposes `in` properties (data
-// passed down) and `callback`s (events sent up). Motion lives
-// inside them so every screen feels alive for free.
-// ============================================================
+// Reusable UI building blocks: inputs come in via `in property`,
+// events go out via `callback`. Hover/press motion is built in.
 
 import { Theme } from "theme.slint";
 
-// A tappable Echo card. Content is provided by the parent via
-// @children. It reports raw input up to the app:
-//   - `clicked`         : a normal tap
-//   - `delete-requested`: a right-click (desktop)
-//   - `hold-started` / `hold-ended`: finger down/up, so the app
-//     can time a long-press with a single shared Timer. (A Timer
-//     placed *inside* a repeated component trips a Slint 1.9.1
-//     compiler bug, so the timing lives at the app root instead.)
+// Tappable Echo card. The parent supplies the inner content via
+// @children and handles three gestures:
+//   clicked          - a normal tap
+//   delete-requested - a right-click
+//   hold-started / hold-ended - pointer down/up, so a long-press
+//     can be timed by a single Timer at the app root. (A Timer
+//     inside a repeated element trips the Slint 1.9.1 text-input
+//     compiler pass, so the timing must live higher up.)
 export component Card inherits Rectangle {
     callback clicked();
     callback delete-requested();
@@ -23,8 +20,6 @@ export component Card inherits Rectangle {
     background: Theme.surface;
     border-radius: Theme.radius;
     border-width: 1px;
-    // border glows toward the accent on hover — a standing truth,
-    // not a manual update. `animate` makes the change glide.
     border-color: ta.has-hover ? Theme.accent : Theme.line;
     drop-shadow-color: #78521e22;
     drop-shadow-blur: ta.has-hover ? 30px : 16px;
@@ -34,7 +29,7 @@ export component Card inherits Rectangle {
         easing: Theme.doey;
     }
 
-    // left accent bar that grows on hover (height 0 -> full)
+    // accent rail down the left edge, revealed on hover
     Rectangle {
         x: 0;
         y: 0;
@@ -66,7 +61,7 @@ export component Card inherits Rectangle {
     @children
 }
 
-// Solid call-to-action button (Save).
+// Solid call-to-action button.
 export component PrimaryButton inherits Rectangle {
     in property <string> text;
     callback clicked();
@@ -98,7 +93,7 @@ export component PrimaryButton inherits Rectangle {
     }
 }
 
-// Outlined / quiet button (Cancel, Delete, close).
+// Quiet outlined button.
 export component GhostButton inherits Rectangle {
     in property <string> text;
     callback clicked();
@@ -126,7 +121,7 @@ export component GhostButton inherits Rectangle {
     }
 }
 
-// Small rounded tag/metadata pill. Sizes to its text.
+// Rounded metadata pill; sizes to its text.
 export component Chip inherits Rectangle {
     in property <string> text;
 

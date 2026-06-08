@@ -1,7 +1,7 @@
 slint::include_modules!();
 
 use chrono::{Local, NaiveDate};
-use saga_core::model::{ECHO_TYPE_PLAIN, Echo, EchoContent, PlainData, Section};
+use saga_core::model::{ECHO_TYPE_PLAIN, Echo, EchoContent, PlainData};
 use saga_storage_sqlite::{Storage, open_default};
 use slint::{ModelRc, SharedString, VecModel};
 use std::collections::BTreeMap;
@@ -10,7 +10,6 @@ use uuid::Uuid;
 
 pub fn run() {
     let storage = open_storage();
-    let section_id = ensure_default_section(&storage);
 
     let ui = App::new().expect("Failed to create UI");
 
@@ -33,7 +32,6 @@ pub fn run() {
 
             let echo = Echo::new(
                 day,
-                section_id,
                 String::new(),
                 EchoContent::PlainEcho(PlainData {
                     markdown: body.to_string(),
@@ -148,27 +146,6 @@ fn relative_label(day: NaiveDate, today: NaiveDate) -> String {
         n if n > 1 => format!("{n} days ago"),
         n => format!("in {} days", -n),
     }
-}
-
-// Sections are being retired (tags supersede them). Until the clean
-// removal lands, every new Echo lives in one hidden "Journal" section.
-fn ensure_default_section(storage: &Storage) -> Uuid {
-    let sections = storage
-        .get_all_sections()
-        .expect("Failed to load sections");
-
-    if let Some(existing) = sections.iter().find(|s| s.name == "Journal") {
-        return existing.id;
-    }
-
-    let sort_order = storage
-        .get_next_sort_order()
-        .expect("Failed to get sort order");
-    let section = Section::new("Journal".to_string(), sort_order);
-    storage
-        .save_section(&section)
-        .expect("Failed to save default section");
-    section.id
 }
 
 #[cfg(not(target_os = "android"))]

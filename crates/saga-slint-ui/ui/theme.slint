@@ -1,8 +1,7 @@
 // ============================================================
-// Theme — the single source of design tokens (the "theme.slint"
-// idea from the mockups). Every component reads Theme.<token>.
-// Swapping themes later = making `active` drive these values.
-// This is the locked "Warm & Cozy" palette.
+// Design tokens. Every component reads Theme.<token>; a future
+// theme switch drives these from an `active` selector.
+// Current palette: Warm & Cozy.
 // ============================================================
 
 export global Theme {
@@ -27,13 +26,10 @@ export global Theme {
     out property <length> radius-sm: 10px;
 
     // ---- motion ----
-    // Durations are tokens so the whole app feels consistent.
     out property <duration> quick: 200ms;
     out property <duration> base: 320ms;
 
-    // springs slightly past
-    // the target and settles back. Shared across the whole app.
-    // can be changed later or modified with themes
+    // Overshoot curve: springs slightly past the target, then settles.
     out property <easing> doey: cubic-bezier(0.34, 1.56, 0.64, 1);
     out property <easing> smooth: cubic-bezier(0.16, 1, 0.3, 1);
 }
