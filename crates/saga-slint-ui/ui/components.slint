@@ -21,6 +21,9 @@ export component Card inherits Rectangle {
     border-radius: Theme.radius;
     border-width: 1px;
     border-color: ta.has-hover ? Theme.accent : Theme.line;
+    // clip children to the rounded shape so the accent rail's corners
+    // follow the card's curve instead of poking past it
+    clip: true;
     drop-shadow-color: #78521e22;
     drop-shadow-blur: ta.has-hover ? 30px : 16px;
     drop-shadow-offset-y: ta.has-hover ? 12px : 6px;
@@ -36,8 +39,6 @@ export component Card inherits Rectangle {
         width: 3px;
         height: ta.has-hover ? parent.height : 0px;
         background: Theme.accent;
-        border-top-left-radius: Theme.radius;
-        border-bottom-left-radius: Theme.radius;
         animate height {
             duration: Theme.base;
             easing: Theme.doey;
@@ -140,6 +141,85 @@ export component Chip inherits Rectangle {
             font-size: 12px;
             font-weight: 600;
             vertical-alignment: center;
+        }
+    }
+}
+
+// Single-line themed text field with a faint placeholder.
+// Built on the primitive TextInput so every color is ours (the
+// std-widgets LineEdit ignores Theme and looks blank when unfocused).
+export component TextField inherits Rectangle {
+    in property <string> placeholder;
+    in-out property <string> text <=> ti.text;
+
+    height: 44px;
+    background: Theme.bg;
+    border-radius: Theme.radius-sm;
+    border-width: 1px;
+    border-color: ti.has-focus ? Theme.accent : Theme.line;
+    animate border-color { duration: Theme.quick; }
+
+    // placeholder sits behind the (transparent) input; hidden once typed
+    Text {
+        x: 12px;
+        height: 100%;
+        text: root.placeholder;
+        visible: ti.text == "";
+        color: Theme.ink-faint;
+        font-size: 15px;
+        vertical-alignment: center;
+    }
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        ti := TextInput {
+            vertical-alignment: center;
+            color: Theme.ink;
+            font-size: 15px;
+            single-line: true;
+            wrap: no-wrap;
+            selection-background-color: Theme.accent-2;
+        }
+    }
+}
+
+// Multi-line themed text area; scrolls when the content overflows.
+// Same reasoning as TextField — TextEdit can't be themed.
+export component TextArea inherits Rectangle {
+    in property <string> placeholder;
+    in-out property <string> text <=> ti.text;
+
+    background: Theme.bg;
+    border-radius: Theme.radius-sm;
+    border-width: 1px;
+    border-color: ti.has-focus ? Theme.accent : Theme.line;
+    clip: true;
+    animate border-color { duration: Theme.quick; }
+
+    Text {
+        x: 12px;
+        y: 12px;
+        width: parent.width - 24px;
+        text: root.placeholder;
+        visible: ti.text == "";
+        color: Theme.ink-faint;
+        font-size: 15px;
+        wrap: word-wrap;
+    }
+
+    Flickable {
+        x: 12px;
+        y: 12px;
+        width: parent.width - 24px;
+        height: parent.height - 24px;
+        ti := TextInput {
+            width: parent.width;
+            color: Theme.ink;
+            font-size: 15px;
+            single-line: false;
+            wrap: word-wrap;
+            selection-background-color: Theme.accent-2;
         }
     }
 }

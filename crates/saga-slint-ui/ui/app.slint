@@ -1,6 +1,6 @@
 import { Theme } from "theme.slint";
-import { Card, PrimaryButton, GhostButton, Chip, CheckBox } from "components.slint";
-import { TextEdit, LineEdit, ScrollView } from "std-widgets.slint";
+import { Card, PrimaryButton, GhostButton, Chip, CheckBox, TextField, TextArea } from "components.slint";
+import { ScrollView } from "std-widgets.slint";
 
 // One Echo, flattened for display. `kind` is "plain" or "task";
 // task-only fields (title, completed, priority, checklist counts)
@@ -37,6 +37,7 @@ export component App inherits Window {
     preferred-width: 560px;
     preferred-height: 820px;
     default-font-size: 15px;
+    default-font-family: "Segoe UI";
     background: Theme.bg;
 
     // Data supplied by Rust.
@@ -121,6 +122,7 @@ export component App inherits Window {
                 padding-bottom: 8px;
                 alignment: end;
                 HorizontalLayout {
+                    alignment: start;
                     spacing: 10px;
                     Text {
                         text: "Saga";
@@ -140,16 +142,19 @@ export component App inherits Window {
 
         ScrollView {
             VerticalLayout {
+                alignment: start;
                 padding: 22px;
                 padding-top: 4px;
                 spacing: 4px;
 
                 for day in root.days : VerticalLayout {
+                    alignment: start;
                     spacing: 10px;
                     padding-top: 14px;
 
                     // day signpost
                     HorizontalLayout {
+                        alignment: start;
                         spacing: 10px;
                         Text {
                             text: day.label;
@@ -186,6 +191,7 @@ export component App inherits Window {
 
                             // task header: completion box + title
                             if echo.kind == "task" : HorizontalLayout {
+                                alignment: start;
                                 spacing: 10px;
                                 CheckBox {
                                     checked: echo.completed;
@@ -261,8 +267,9 @@ export component App inherits Window {
 
     // ---- floating "+" button ----
     Rectangle {
-        width: 58px;
-        height: 58px;
+        property <length> size: 58px;
+        width: self.size;
+        height: self.size;
         x: root.width - self.width - 22px;
         y: root.height - self.height - 22px;
         background: fab.pressed ? Theme.clay : Theme.accent;
@@ -275,15 +282,23 @@ export component App inherits Window {
             easing: Theme.doey;
         }
 
-        Text {
-            width: 100%;
-            height: 100%;
-            text: "+";
-            color: Theme.on-accent;
-            font-size: 30px;
-            font-weight: 700;
-            horizontal-alignment: center;
-            vertical-alignment: center;
+        // "+" drawn as two centered bars (crisp, perfectly centered,
+        // no font-glyph baseline quirks)
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 22px;
+            height: 3px;
+            border-radius: 1.5px;
+            background: Theme.on-accent;
+        }
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 3px;
+            height: 22px;
+            border-radius: 1.5px;
+            background: Theme.on-accent;
         }
 
         fab := TouchArea {
@@ -450,15 +465,15 @@ export component App inherits Window {
                 }
 
                 // title (tasks only)
-                if root.draft-kind == "task" : LineEdit {
+                if root.draft-kind == "task" : TextField {
                     text <=> root.draft-title;
-                    placeholder-text: "What needs doing?";
+                    placeholder: "What needs doing?";
                 }
 
                 // body: plain markdown, or task description
-                TextEdit {
+                TextArea {
                     text <=> root.draft-body;
-                    wrap: word-wrap;
+                    placeholder: root.draft-kind == "task" ? "Add a description…" : "Write your echo…";
                     vertical-stretch: 1;
                 }
 
