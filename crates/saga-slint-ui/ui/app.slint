@@ -1,12 +1,20 @@
 import { Theme } from "theme.slint";
-import { Card, PrimaryButton, GhostButton, Chip } from "components.slint";
-import { TextEdit, ScrollView } from "std-widgets.slint";
+import { Card, PrimaryButton, GhostButton, Chip, CheckBox } from "components.slint";
+import { TextEdit, LineEdit, ScrollView } from "std-widgets.slint";
 
-// One Echo, flattened for display on the timeline.
+// One Echo, flattened for display. `kind` is "plain" or "task";
+// task-only fields (title, completed, priority, checklist counts)
+// are ignored for plain entries.
 export struct EchoItem {
     id: string,
+    kind: string,
+    title: string,
     body: string,
     time: string,
+    completed: bool,
+    priority: string,
+    checklist-done: int,
+    checklist-total: int,
     mood: int,
     energy: int,
     has-mood: bool,
@@ -38,10 +46,15 @@ export component App inherits Window {
     // Composer state. draft-id == "" means "creating a new Echo".
     property <bool> composer-open: false;
     property <string> draft-id: "";
+    property <string> draft-kind: "plain";
     property <string> draft-day: "";
+    property <string> draft-title: "";
     property <string> draft-body: "";
+    property <string> draft-priority: "medium";
+    property <bool> draft-completed: false;
 
-    // Delete-menu state.
+    // Type-picker + delete-menu state.
+    property <bool> picker-open: false;
     property <bool> confirm-open: false;
     property <string> confirm-id: "";
 
@@ -49,19 +62,37 @@ export component App inherits Window {
     property <string> hold-id: "";
     property <bool> hold-fired: false;
 
-    callback create-echo(string, string);   // (day-iso, body)
-    callback update-echo(string, string);    // (id, body)
-    callback delete-echo(string);            // (id)
+    callback create-plain(string, string);                  // (day, body)
+    callback update-plain(string, string);                  // (id, body)
+    callback create-task(string, string, string, string, bool);  // (day, title, desc, priority, completed)
+    callback update-task(string, string, string, string, bool);  // (id, title, desc, priority, completed)
+    callback toggle-complete(string);                       // (id)
+    callback delete-echo(string);                           // (id)
 
-    function open-new() {
+    function open-new-plain() {
         root.draft-id = "";
+        root.draft-kind = "plain";
         root.draft-day = root.today-iso;
         root.draft-body = "";
         root.composer-open = true;
     }
-    function open-editor(id: string, body: string) {
-        root.draft-id = id;
-        root.draft-body = body;
+    function open-new-task() {
+        root.draft-id = "";
+        root.draft-kind = "task";
+        root.draft-day = root.today-iso;
+        root.draft-title = "";
+        root.draft-body = "";
+        root.draft-priority = "medium";
+        root.draft-completed = false;
+        root.composer-open = true;
+    }
+    function open-editor(item: EchoItem) {
+        root.draft-id = item.id;
+        root.draft-kind = item.kind;
+        root.draft-title = item.title;
+        root.draft-body = item.body;
+        root.draft-priority = item.priority == "" ? "medium" : item.priority;
+        root.draft-completed = item.completed;
         root.composer-open = true;
     }
     function ask-delete(id: string) {
@@ -84,7 +115,7 @@ export component App inherits Window {
     // ---- header + scrolling timeline ----
     VerticalLayout {
         Rectangle {
-            height: 88px;
+            height: 84px;
             VerticalLayout {
                 padding: 22px;
                 padding-bottom: 8px;
@@ -139,7 +170,7 @@ export component App inherits Window {
                     for echo in day.echoes : Card {
                         clicked => {
                             if (!root.hold-fired) {
-                                root.open-editor(echo.id, echo.body);
+                                root.open-editor(echo);
                             }
                         }
                         delete-requested => { root.ask-delete(echo.id); }
@@ -153,10 +184,28 @@ export component App inherits Window {
                             padding: 16px;
                             spacing: 9px;
 
-                            Text {
+                            // task header: completion box + title
+                            if echo.kind == "task" : HorizontalLayout {
+                                spacing: 10px;
+                                CheckBox {
+                                    checked: echo.completed;
+                                    toggled => { root.toggle-complete(echo.id); }
+                                }
+                                Text {
+                                    text: echo.title;
+                                    color: echo.completed ? Theme.ink-faint : Theme.ink;
+                                    font-size: 15px;
+                                    font-weight: 700;
+                                    vertical-alignment: center;
+                                    wrap: word-wrap;
+                                }
+                            }
+
+                            // body: plain markdown, or task description
+                            if echo.body != "" : Text {
                                 text: echo.body;
-                                color: Theme.ink;
-                                font-size: 15px;
+                                color: echo.kind == "task" ? Theme.ink-soft : Theme.ink;
+                                font-size: echo.kind == "task" ? 14px : 15px;
                                 wrap: word-wrap;
                             }
 
@@ -169,6 +218,31 @@ export component App inherits Window {
                                     color: Theme.ink-faint;
                                     font-size: 12px;
                                     vertical-alignment: center;
+                                }
+                                if echo.kind == "task" && echo.priority != "" : Rectangle {
+                                    height: 22px;
+                                    border-radius: 6px;
+                                    background: echo.priority == "critical" ? #f7d6d2
+                                        : echo.priority == "high" ? #fbe3cf
+                                        : echo.priority == "medium" ? #fdf2d6
+                                        : #eef3ec;
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        Text {
+                                            text: echo.priority;
+                                            font-size: 11px;
+                                            font-weight: 700;
+                                            vertical-alignment: center;
+                                            color: echo.priority == "critical" ? #c0392b
+                                                : echo.priority == "high" ? #c2671d
+                                                : echo.priority == "medium" ? #b58a18
+                                                : #6f8a5f;
+                                        }
+                                    }
+                                }
+                                if echo.checklist-total > 0 : Chip {
+                                    text: "\{echo.checklist-done}/\{echo.checklist-total}";
                                 }
                                 if echo.has-mood : Chip { text: "mood \{echo.mood}"; }
                                 if echo.has-energy : Chip { text: "energy \{echo.energy}"; }
@@ -187,15 +261,15 @@ export component App inherits Window {
 
     // ---- floating "+" button ----
     Rectangle {
-        width: 62px;
-        height: 62px;
-        x: parent.width - self.width - 24px;
-        y: parent.height - self.height - 24px;
+        width: 58px;
+        height: 58px;
+        x: root.width - self.width - 22px;
+        y: root.height - self.height - 22px;
         background: fab.pressed ? Theme.clay : Theme.accent;
-        border-radius: 20px;
+        border-radius: 19px;
         drop-shadow-color: #b5651d80;
-        drop-shadow-blur: fab.has-hover ? 36px : 22px;
-        drop-shadow-offset-y: 10px;
+        drop-shadow-blur: fab.has-hover ? 34px : 20px;
+        drop-shadow-offset-y: 9px;
         animate background, drop-shadow-blur {
             duration: Theme.quick;
             easing: Theme.doey;
@@ -206,20 +280,122 @@ export component App inherits Window {
             height: 100%;
             text: "+";
             color: Theme.on-accent;
-            font-size: 32px;
+            font-size: 30px;
             font-weight: 700;
             horizontal-alignment: center;
             vertical-alignment: center;
         }
 
         fab := TouchArea {
-            clicked => { root.open-new(); }
+            clicked => { root.picker-open = true; }
+        }
+    }
+
+    // ---- type picker (choose Echo vs Task Echo) ----
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        visible: picker-open;
+
+        Rectangle {
+            background: #3e2723;
+            opacity: picker-open ? 0.34 : 0.0;
+            animate opacity { duration: Theme.base; }
+            TouchArea {
+                clicked => { root.picker-open = false; }
+            }
+        }
+
+        Rectangle {
+            width: Math.min(420px, parent.width - 40px);
+            height: 130px;
+            x: (parent.width - self.width) / 2;
+            y: picker-open ? (parent.height - self.height) / 2 : parent.height;
+            opacity: picker-open ? 1.0 : 0.0;
+            background: Theme.surface;
+            border-radius: 18px;
+            border-width: 1px;
+            border-color: Theme.line;
+            drop-shadow-color: #3e272366;
+            drop-shadow-blur: 50px;
+            drop-shadow-offset-y: 18px;
+            animate y, opacity {
+                duration: Theme.base;
+                easing: Theme.doey;
+            }
+
+            HorizontalLayout {
+                padding: 16px;
+                spacing: 12px;
+
+                pick-plain := Rectangle {
+                    border-radius: 14px;
+                    border-width: 1px;
+                    border-color: pp.has-hover ? Theme.accent : Theme.line;
+                    background: pp.has-hover ? Theme.surface-2 : Theme.bg;
+                    animate border-color, background { duration: Theme.quick; }
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 4px;
+                        Text {
+                            text: "Echo";
+                            font-size: 16px;
+                            font-weight: 800;
+                            color: Theme.ink;
+                            horizontal-alignment: center;
+                        }
+                        Text {
+                            text: "a freeform note";
+                            font-size: 12px;
+                            color: Theme.ink-faint;
+                            horizontal-alignment: center;
+                        }
+                    }
+                    pp := TouchArea {
+                        clicked => {
+                            root.picker-open = false;
+                            root.open-new-plain();
+                        }
+                    }
+                }
+
+                pick-task := Rectangle {
+                    border-radius: 14px;
+                    border-width: 1px;
+                    border-color: pt.has-hover ? Theme.accent : Theme.line;
+                    background: pt.has-hover ? Theme.surface-2 : Theme.bg;
+                    animate border-color, background { duration: Theme.quick; }
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 4px;
+                        Text {
+                            text: "Task Echo";
+                            font-size: 16px;
+                            font-weight: 800;
+                            color: Theme.ink;
+                            horizontal-alignment: center;
+                        }
+                        Text {
+                            text: "something to do";
+                            font-size: 12px;
+                            color: Theme.ink-faint;
+                            horizontal-alignment: center;
+                        }
+                    }
+                    pt := TouchArea {
+                        clicked => {
+                            root.picker-open = false;
+                            root.open-new-task();
+                        }
+                    }
+                }
+            }
         }
     }
 
     // ---- composer overlay (create / edit) ----
-    // Kept in the tree and gated by `visible` rather than `if`, so the
-    // TextEdit compiles cleanly (see the Slint 1.9.1 note in components).
+    // Kept in the tree and gated by `visible` so the text inputs
+    // compile cleanly (see the Slint 1.9.1 note in components).
     Rectangle {
         width: 100%;
         height: 100%;
@@ -237,7 +413,7 @@ export component App inherits Window {
         // panel slides up from the bottom and fades in
         Rectangle {
             width: Math.min(520px, parent.width - 32px);
-            height: Math.min(560px, parent.height - 80px);
+            height: Math.min(580px, parent.height - 80px);
             x: (parent.width - self.width) / 2;
             y: composer-open ? (parent.height - self.height) / 2 : parent.height;
             opacity: composer-open ? 1.0 : 0.0;
@@ -255,11 +431,11 @@ export component App inherits Window {
 
             VerticalLayout {
                 padding: 20px;
-                spacing: 14px;
+                spacing: 12px;
 
                 HorizontalLayout {
                     Text {
-                        text: root.draft-id == "" ? "New Echo" : "Edit Echo";
+                        text: (root.draft-id == "" ? "New " : "Edit ") + (root.draft-kind == "task" ? "Task Echo" : "Echo");
                         color: Theme.ink;
                         font-size: 18px;
                         font-weight: 800;
@@ -273,10 +449,67 @@ export component App inherits Window {
                     }
                 }
 
-                body-edit := TextEdit {
-                    text: root.draft-body;
+                // title (tasks only)
+                if root.draft-kind == "task" : LineEdit {
+                    text <=> root.draft-title;
+                    placeholder-text: "What needs doing?";
+                }
+
+                // body: plain markdown, or task description
+                TextEdit {
+                    text <=> root.draft-body;
                     wrap: word-wrap;
                     vertical-stretch: 1;
+                }
+
+                // priority (tasks only)
+                if root.draft-kind == "task" : VerticalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: "Priority";
+                        color: Theme.ink-soft;
+                        font-size: 12px;
+                        font-weight: 700;
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        for p in ["low", "medium", "high", "critical"] : Rectangle {
+                            height: 34px;
+                            border-radius: 10px;
+                            border-width: 1px;
+                            border-color: root.draft-priority == p ? Theme.accent : Theme.line;
+                            background: root.draft-priority == p ? Theme.accent : Theme.bg;
+                            animate background, border-color { duration: Theme.quick; }
+                            Text {
+                                width: 100%;
+                                height: 100%;
+                                text: p;
+                                font-size: 13px;
+                                font-weight: 700;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                                color: root.draft-priority == p ? Theme.on-accent : Theme.ink-soft;
+                            }
+                            TouchArea {
+                                clicked => { root.draft-priority = p; }
+                            }
+                        }
+                    }
+                }
+
+                // completion (tasks only)
+                if root.draft-kind == "task" : HorizontalLayout {
+                    spacing: 10px;
+                    CheckBox {
+                        checked: root.draft-completed;
+                        toggled => { root.draft-completed = !root.draft-completed; }
+                    }
+                    Text {
+                        text: "Completed";
+                        color: Theme.ink-soft;
+                        font-size: 14px;
+                        vertical-alignment: center;
+                    }
                 }
 
                 HorizontalLayout {
@@ -295,9 +528,17 @@ export component App inherits Window {
                         width: 150px;
                         clicked => {
                             if (root.draft-id == "") {
-                                root.create-echo(root.draft-day, body-edit.text);
+                                if (root.draft-kind == "task") {
+                                    root.create-task(root.draft-day, root.draft-title, root.draft-body, root.draft-priority, root.draft-completed);
+                                } else {
+                                    root.create-plain(root.draft-day, root.draft-body);
+                                }
                             } else {
-                                root.update-echo(root.draft-id, body-edit.text);
+                                if (root.draft-kind == "task") {
+                                    root.update-task(root.draft-id, root.draft-title, root.draft-body, root.draft-priority, root.draft-completed);
+                                } else {
+                                    root.update-plain(root.draft-id, root.draft-body);
+                                }
                             }
                             root.composer-open = false;
                         }
