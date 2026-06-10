@@ -1,5 +1,5 @@
 import { Theme } from "theme.slint";
-import { Card, PrimaryButton, GhostButton, Chip, CheckBox, TextField, TextArea } from "components.slint";
+import { Card, PrimaryButton, GhostButton, Chip, CheckBox, TextField, TextArea, SegTab } from "components.slint";
 import { ScrollView } from "std-widgets.slint";
 
 // One Echo, flattened for display. `kind` is "plain" or "task";
@@ -43,6 +43,10 @@ export component App inherits Window {
     // Data supplied by Rust.
     in property <[DaySignpost]> days;
     in property <string> today-iso;
+
+    // Which screen is showing: "today" or "path". Defaults to the
+    // timeline until the Today screen has real content (Phase D).
+    property <string> current-view: "path";
 
     // Composer state. draft-id == "" means "creating a new Echo".
     property <bool> composer-open: false;
@@ -140,7 +144,57 @@ export component App inherits Window {
             }
         }
 
-        ScrollView {
+        // view switch: Today vs Path
+        HorizontalLayout {
+            alignment: start;
+            padding-left: 22px;
+            padding-right: 22px;
+            padding-bottom: 10px;
+            Rectangle {
+                height: 38px;
+                border-radius: 12px;
+                background: Theme.surface-2;
+                border-width: 1px;
+                border-color: Theme.line;
+                HorizontalLayout {
+                    padding: 4px;
+                    spacing: 4px;
+                    SegTab {
+                        label: "Today";
+                        active: root.current-view == "today";
+                        clicked => { root.current-view = "today"; }
+                    }
+                    SegTab {
+                        label: "Path";
+                        active: root.current-view == "path";
+                        clicked => { root.current-view = "path"; }
+                    }
+                }
+            }
+        }
+
+        // Today screen — placeholder until Phase D wires the seed + tasks
+        if root.current-view == "today" : VerticalLayout {
+            vertical-stretch: 1;
+            alignment: center;
+            spacing: 6px;
+            Text {
+                text: "Today";
+                color: Theme.ink;
+                font-size: 22px;
+                font-weight: 800;
+                horizontal-alignment: center;
+            }
+            Text {
+                text: "Your seed and today's tasks will live here.";
+                color: Theme.ink-faint;
+                font-size: 14px;
+                horizontal-alignment: center;
+            }
+        }
+
+        if root.current-view == "path" : ScrollView {
+            vertical-stretch: 1;
             VerticalLayout {
                 alignment: start;
                 padding: 22px;

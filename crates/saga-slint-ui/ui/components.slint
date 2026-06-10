@@ -122,6 +122,42 @@ export component GhostButton inherits Rectangle {
     }
 }
 
+// One tab of a segmented control. Active = filled accent; inactive
+// = quiet. The owner tracks which is active and flips it on click.
+export component SegTab inherits Rectangle {
+    in property <string> label;
+    in property <bool> active;
+    callback clicked();
+
+    height: 30px;
+    border-radius: 9px;
+    background: root.active ? Theme.accent : transparent;
+    animate background {
+        duration: Theme.base;
+        easing: Theme.doey;
+    }
+
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        Text {
+            text: root.label;
+            color: root.active ? Theme.on-accent : Theme.ink-soft;
+            font-size: 13px;
+            font-weight: 700;
+            vertical-alignment: center;
+            animate color {
+                duration: Theme.base;
+                easing: Theme.doey;
+            }
+        }
+    }
+
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
 // Rounded metadata pill; sizes to its text.
 export component Chip inherits Rectangle {
     in property <string> text;
