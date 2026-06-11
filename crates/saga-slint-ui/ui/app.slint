@@ -2,9 +2,7 @@ import { Theme } from "theme.slint";
 import { Card, PrimaryButton, GhostButton, Chip, CheckBox, TextField, TextArea, SegTab } from "components.slint";
 import { ScrollView } from "std-widgets.slint";
 
-// One Echo, flattened for display. `kind` is "plain" or "task";
-// task-only fields (title, completed, priority, checklist counts)
-// are ignored for plain entries.
+// One Echo, flattened for display.
 export struct EchoItem {
     id: string,
     kind: string,
@@ -32,6 +30,13 @@ export struct DaySignpost {
     echoes: [EchoItem],
 }
 
+// One editable checklist row in the composer. Backed by a Rust
+// VecModel so add/remove/toggle can mutate it live.
+export struct ChecklistDraft {
+    text: string,
+    done: bool,
+}
+
 export component App inherits Window {
     title: "Saga";
     preferred-width: 560px;
@@ -57,6 +62,11 @@ export component App inherits Window {
     property <string> draft-priority: "medium";
     property <bool> draft-completed: false;
 
+    // Draft checklist, fed + mutated by Rust via the callbacks below.
+    // draft-new-item holds the "add a step" field until it's pushed.
+    in property <[ChecklistDraft]> draft-checklist;
+    property <string> draft-new-item: "";
+
     // Type-picker + delete-menu state.
     property <bool> picker-open: false;
     property <bool> confirm-open: false;
@@ -73,6 +83,14 @@ export component App inherits Window {
     callback toggle-complete(string);                       // (id)
     callback delete-echo(string);                           // (id)
 
+    // Checklist editing acts on the Rust-backed draft-checklist model.
+    callback checklist-add(string);                         // (text)
+    callback checklist-remove(int);                         // (index)
+    callback checklist-toggle(int);                         // (index)
+    // Fills draft-checklist when the composer opens: "" = new (clear),
+    // an id = load that task's items.
+    callback begin-task-edit(string);                       // (id or "")
+
     function open-new-plain() {
         root.draft-id = "";
         root.draft-kind = "plain";
@@ -88,6 +106,8 @@ export component App inherits Window {
         root.draft-body = "";
         root.draft-priority = "medium";
         root.draft-completed = false;
+        root.draft-new-item = "";
+        root.begin-task-edit("");
         root.composer-open = true;
     }
     function open-editor(item: EchoItem) {
@@ -97,6 +117,8 @@ export component App inherits Window {
         root.draft-body = item.body;
         root.draft-priority = item.priority == "" ? "medium" : item.priority;
         root.draft-completed = item.completed;
+        root.draft-new-item = "";
+        root.begin-task-edit(item.kind == "task" ? item.id : "");
         root.composer-open = true;
     }
     function ask-delete(id: string) {
@@ -529,6 +551,86 @@ export component App inherits Window {
                     vertical-stretch: 1;
                 }
 
+                // checklist (tasks only)
+                if root.draft-kind == "task" : VerticalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: "Checklist";
+                        color: Theme.ink-soft;
+                        font-size: 12px;
+                        font-weight: 700;
+                    }
+
+                    for item[idx] in root.draft-checklist : HorizontalLayout {
+                        spacing: 10px;
+                        CheckBox {
+                            checked: item.done;
+                            toggled => { root.checklist-toggle(idx); }
+                        }
+                        Text {
+                            text: item.text;
+                            color: item.done ? Theme.ink-faint : Theme.ink;
+                            font-size: 14px;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                            wrap: word-wrap;
+                        }
+                        // remove this item
+                        Rectangle {
+                            width: 26px;
+                            height: 26px;
+                            border-radius: 8px;
+                            background: rm.has-hover ? #c0392b14 : transparent;
+                            animate background { duration: Theme.quick; }
+                            Text {
+                                text: "✕";
+                                color: Theme.ink-faint;
+                                font-size: 13px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            rm := TouchArea {
+                                clicked => { root.checklist-remove(idx); }
+                            }
+                        }
+                    }
+
+                    // add a new item
+                    HorizontalLayout {
+                        spacing: 8px;
+                        TextField {
+                            text <=> root.draft-new-item;
+                            placeholder: "Add a step…";
+                            horizontal-stretch: 1;
+                        }
+                        Rectangle {
+                            width: 44px;
+                            height: 44px;
+                            border-radius: Theme.radius-sm;
+                            border-width: 1px;
+                            border-color: add.has-hover ? Theme.accent : Theme.line;
+                            background: add.has-hover ? Theme.surface-2 : Theme.bg;
+                            animate border-color, background { duration: Theme.quick; }
+                            Text {
+                                text: "+";
+                                color: Theme.accent;
+                                font-size: 22px;
+                                font-weight: 800;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            add := TouchArea {
+                                clicked => {
+                                    if (root.draft-new-item != "") {
+                                        root.checklist-add(root.draft-new-item);
+                                        root.draft-new-item = "";
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // priority (tasks only)
                 if root.draft-kind == "task" : VerticalLayout {
                     spacing: 6px;
@@ -564,8 +666,9 @@ export component App inherits Window {
                     }
                 }
 
-                // completion (tasks only)
-                if root.draft-kind == "task" : HorizontalLayout {
+                // completion (tasks only). With a checklist, completion is
+                // derived from the items, so the manual toggle is hidden.
+                if root.draft-kind == "task" && root.draft-checklist.length == 0 : HorizontalLayout {
                     spacing: 10px;
                     CheckBox {
                         checked: root.draft-completed;
@@ -577,6 +680,11 @@ export component App inherits Window {
                         font-size: 14px;
                         vertical-alignment: center;
                     }
+                }
+                if root.draft-kind == "task" && root.draft-checklist.length > 0 : Text {
+                    text: "Completes when all steps are checked.";
+                    color: Theme.ink-faint;
+                    font-size: 12px;
                 }
 
                 HorizontalLayout {

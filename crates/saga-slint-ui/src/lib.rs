@@ -2,10 +2,10 @@ slint::include_modules!();
 
 use chrono::{Local, NaiveDate};
 use saga_core::model::{
-    ECHO_TYPE_PLAIN, ECHO_TYPE_TASK, Echo, EchoContent, PlainData, Priority,
+    ECHO_TYPE_PLAIN, ECHO_TYPE_TASK, Echo, EchoContent, PlainData, Priority, TaskData,
 };
 use saga_storage_sqlite::{Storage, open_default};
-use slint::{ModelRc, SharedString, VecModel};
+use slint::{Model, ModelRc, SharedString, VecModel};
 use std::collections::BTreeMap;
 use std::rc::Rc;
 use uuid::Uuid;
@@ -20,7 +20,69 @@ pub fn run() {
 
     let storage = Rc::new(storage);
 
+    // The composer's editable checklist. Shared (Rc) between the UI
+    // (which draws it) and the callbacks (which mutate it).
+    let checklist_model: Rc<VecModel<ChecklistDraft>> = Rc::new(VecModel::default());
+    ui.set_draft_checklist(ModelRc::from(checklist_model.clone()));
+
     load_timeline(&ui, &storage);
+
+    // ---- checklist: add an item ----
+    {
+        let model = checklist_model.clone();
+
+        ui.on_checklist_add(move |text| {
+            let text = text.trim().to_string();
+            if !text.is_empty() {
+                model.push(ChecklistDraft {
+                    text: text.into(),
+                    done: false,
+                });
+            }
+        });
+    }
+
+    // ---- checklist: remove an item ----
+    {
+        let model = checklist_model.clone();
+
+        ui.on_checklist_remove(move |index| {
+            let i = index as usize;
+            if i < model.row_count() {
+                model.remove(i);
+            }
+        });
+    }
+
+    // ---- checklist: toggle an item done ----
+    {
+        let model = checklist_model.clone();
+
+        ui.on_checklist_toggle(move |index| {
+            let i = index as usize;
+            if let Some(mut row) = model.row_data(i) {
+                row.done = !row.done;
+                model.set_row_data(i, row);
+            }
+        });
+    }
+
+    // ---- checklist: fill the draft when the composer opens ----
+    {
+        let model = checklist_model.clone();
+        let storage = storage.clone();
+
+        ui.on_begin_task_edit(move |id| {
+            if id.is_empty() {
+                model.set_vec(Vec::new());
+                return;
+            }
+            let rows = load_echo(&storage, &id)
+                .and_then(|echo| echo.as_task().map(checklist_to_draft))
+                .unwrap_or_default();
+            model.set_vec(rows);
+        });
+    }
 
     // ---- create a Plain Echo ----
     {
@@ -60,15 +122,14 @@ pub fn run() {
     {
         let ui_weak = ui.as_weak();
         let storage = storage.clone();
+        let checklist_model = checklist_model.clone();
 
         ui.on_create_task(move |day_iso, title, description, priority, completed| {
             let mut echo = Echo::new_task(parse_day(&day_iso), title.to_string());
             if let Some(task) = echo.as_task_mut() {
                 task.description = non_empty(&description);
                 task.priority = parse_priority(&priority);
-                if completed {
-                    task.complete();
-                }
+                apply_checklist(task, &checklist_model, completed);
             }
             storage.save_echo(&echo).expect("Failed to save task");
             reload(&ui_weak, &storage);
@@ -79,6 +140,7 @@ pub fn run() {
     {
         let ui_weak = ui.as_weak();
         let storage = storage.clone();
+        let checklist_model = checklist_model.clone();
 
         ui.on_update_task(move |id, title, description, priority, completed| {
             if let Some(mut echo) = load_echo(&storage, &id) {
@@ -86,11 +148,7 @@ pub fn run() {
                 if let Some(task) = echo.as_task_mut() {
                     task.description = non_empty(&description);
                     task.priority = parse_priority(&priority);
-                    if completed {
-                        task.complete();
-                    } else {
-                        task.uncomplete();
-                    }
+                    apply_checklist(task, &checklist_model, completed);
                 }
                 echo.updated_at = Local::now();
                 storage.update_echo(&echo).expect("Failed to update task");
@@ -174,6 +232,44 @@ fn priority_label(priority: &Priority) -> &'static str {
         Priority::Medium => "medium",
         Priority::High => "high",
         Priority::Critical => "critical",
+    }
+}
+
+// A task's stored checklist → the composer's draft rows.
+fn checklist_to_draft(task: &TaskData) -> Vec<ChecklistDraft> {
+    task.checklist
+        .iter()
+        .map(|item| ChecklistDraft {
+            text: item.text.clone().into(),
+            done: item.done,
+        })
+        .collect()
+}
+
+// Rebuilds a task's checklist from the composer's draft rows. With
+// items present, completion is derived (add_item/set_item_done run
+// recompute_completion); the manual "Completed" toggle is honored
+// only for an empty checklist.
+fn apply_checklist(task: &mut TaskData, model: &VecModel<ChecklistDraft>, completed: bool) {
+    task.clear_checklist();
+    for i in 0..model.row_count() {
+        let row = model.row_data(i).expect("row index in range");
+        let text = row.text.trim().to_string();
+        if text.is_empty() {
+            continue;
+        }
+        task.add_item(text);
+        if row.done {
+            let last = task.checklist.len() - 1;
+            task.set_item_done(last, true);
+        }
+    }
+    if task.checklist.is_empty() {
+        if completed {
+            task.complete();
+        } else {
+            task.uncomplete();
+        }
     }
 }
 
