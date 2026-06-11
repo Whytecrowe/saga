@@ -44,8 +44,7 @@ export component App inherits Window {
     in property <[DaySignpost]> days;
     in property <string> today-iso;
 
-    // Which screen is showing: "today" or "path". Defaults to the
-    // timeline until the Today screen has real content (Phase D).
+    // Which screen is showing: "today" or "path".
     property <string> current-view: "path";
 
     // Composer state. draft-id == "" means "creating a new Echo".
@@ -173,7 +172,7 @@ export component App inherits Window {
             }
         }
 
-        // Today screen — placeholder until Phase D wires the seed + tasks
+        // Today screen
         if root.current-view == "today" : VerticalLayout {
             vertical-stretch: 1;
             alignment: center;
@@ -336,8 +335,7 @@ export component App inherits Window {
             easing: Theme.doey;
         }
 
-        // "+" drawn as two centered bars (crisp, perfectly centered,
-        // no font-glyph baseline quirks)
+        // "+" icon: two centered bars
         Rectangle {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;

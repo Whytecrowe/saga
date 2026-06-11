@@ -60,6 +60,17 @@ fn migration_001_initial(tx: &Transaction) -> rusqlite::Result<()> {
             sort_order INTEGER NOT NULL,
             exercises_json TEXT NOT NULL DEFAULT '[]',
             FOREIGN KEY (program_id) REFERENCES workout_programs(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS seeds (
+            id TEXT PRIMARY KEY,
+            text TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            planted_on TEXT NOT NULL,
+            until TEXT,
+            archived INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
         );",
     )
 }
