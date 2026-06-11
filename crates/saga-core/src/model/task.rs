@@ -112,13 +112,11 @@ impl TaskData {
             text,
             done: false,
         });
-        self.recompute_completion();
     }
 
     pub fn remove_item(&mut self, index: usize) {
         if index < self.checklist.len() {
             self.checklist.remove(index);
-            self.recompute_completion();
         }
     }
 
@@ -131,14 +129,12 @@ impl TaskData {
     pub fn toggle_item(&mut self, index: usize) {
         if let Some(item) = self.checklist.get_mut(index) {
             item.done = !item.done;
-            self.recompute_completion();
         }
     }
 
     pub fn set_item_done(&mut self, index: usize, done: bool) {
         if let Some(item) = self.checklist.get_mut(index) {
             item.done = done;
-            self.recompute_completion();
         }
     }
 
@@ -189,7 +185,7 @@ impl TaskData {
             return false;
         };
         match self.due_time {
-            Some(_) => self.due_datetime().map_or(false, |due| due < now),
+            Some(_) => self.due_datetime().is_some_and(|due| due < now),
             None => due_date < now.date_naive(),
         }
     }
@@ -205,21 +201,6 @@ impl TaskData {
 
     pub fn set_estimated_minutes(&mut self, minutes: Option<u32>) {
         self.estimated_minutes = minutes;
-    }
-
-    fn recompute_completion(&mut self) {
-        if self.checklist.is_empty() {
-            return;
-        }
-        if self.checklist.iter().all(|item| item.done) {
-            if !self.completed {
-                self.completed = true;
-                self.completed_at = Some(Local::now());
-            }
-        } else if self.completed {
-            self.completed = false;
-            self.completed_at = None;
-        }
     }
 }
 
@@ -311,7 +292,7 @@ mod tests {
     }
 
     #[test]
-    fn test_checklist_autocomplete() {
+    fn test_checklist_independent_of_completion() {
         let mut task = TaskData::new();
         task.add_item("Milk".to_string());
         task.add_item("Eggs".to_string());
@@ -320,39 +301,48 @@ mod tests {
         assert_eq!(task.progress(), (0, 2));
         assert!(!task.completed);
 
+        // checking every item must NOT auto-complete the task
         task.toggle_item(0);
-        assert_eq!(task.progress(), (1, 2));
-        assert!(!task.completed);
-
         task.toggle_item(1);
         assert_eq!(task.progress(), (2, 2));
-        assert!(task.completed);
-        assert!(task.completed_at.is_some());
-
-        task.toggle_item(1);
         assert!(!task.completed);
-        assert!(task.completed_at.is_none());
+
+        // completion is manual and stays put when items change
+        task.complete();
+        assert!(task.completed);
+        task.toggle_item(0);
+        assert_eq!(task.progress(), (1, 2));
+        assert!(task.completed, "unchecking an item must not reopen the task");
     }
 
     #[test]
-    fn test_empty_checklist_not_autocompleted() {
+    fn test_manual_complete_uncomplete() {
         let mut task = TaskData::new();
         assert!(!task.completed);
 
         task.complete();
         assert!(task.completed);
+        assert!(task.completed_at.is_some());
+
+        task.uncomplete();
+        assert!(!task.completed);
+        assert!(task.completed_at.is_none());
     }
 
     #[test]
-    fn test_remove_item_triggers_autocomplete() {
+    fn test_complete_with_partial_checklist() {
         let mut task = TaskData::new();
         task.add_item("A".to_string());
         task.add_item("B".to_string());
         task.set_item_done(0, true);
-        assert!(!task.completed);
+
+        task.complete();
+        assert!(task.completed);
+        assert_eq!(task.progress(), (1, 2));
 
         task.remove_item(1);
         assert!(task.completed);
+        assert_eq!(task.progress(), (1, 1));
     }
 
     #[test]
@@ -459,6 +449,7 @@ mod tests {
             task.recurrence = Some(Recurrence::Weekly);
             task.add_item("Milk".to_string());
             task.set_item_done(0, true);
+            task.complete();
         }
         assert!(echo.as_task().unwrap().completed);
 

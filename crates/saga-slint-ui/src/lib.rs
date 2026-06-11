@@ -20,8 +20,7 @@ pub fn run() {
 
     let storage = Rc::new(storage);
 
-    // The composer's editable checklist. Shared (Rc) between the UI
-    // (which draws it) and the callbacks (which mutate it).
+    // The composer's editable checklist, shared with the callbacks below.
     let checklist_model: Rc<VecModel<ChecklistDraft>> = Rc::new(VecModel::default());
     ui.set_draft_checklist(ModelRc::from(checklist_model.clone()));
 
@@ -235,7 +234,6 @@ fn priority_label(priority: &Priority) -> &'static str {
     }
 }
 
-// A task's stored checklist → the composer's draft rows.
 fn checklist_to_draft(task: &TaskData) -> Vec<ChecklistDraft> {
     task.checklist
         .iter()
@@ -246,10 +244,8 @@ fn checklist_to_draft(task: &TaskData) -> Vec<ChecklistDraft> {
         .collect()
 }
 
-// Rebuilds a task's checklist from the composer's draft rows. With
-// items present, completion is derived (add_item/set_item_done run
-// recompute_completion); the manual "Completed" toggle is honored
-// only for an empty checklist.
+// Rebuilds the checklist from the draft rows; completion is set manually,
+// independent of the items.
 fn apply_checklist(task: &mut TaskData, model: &VecModel<ChecklistDraft>, completed: bool) {
     task.clear_checklist();
     for i in 0..model.row_count() {
@@ -264,12 +260,10 @@ fn apply_checklist(task: &mut TaskData, model: &VecModel<ChecklistDraft>, comple
             task.set_item_done(last, true);
         }
     }
-    if task.checklist.is_empty() {
-        if completed {
-            task.complete();
-        } else {
-            task.uncomplete();
-        }
+    if completed {
+        task.complete();
+    } else {
+        task.uncomplete();
     }
 }
 

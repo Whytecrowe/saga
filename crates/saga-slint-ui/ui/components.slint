@@ -187,17 +187,20 @@ export component Chip inherits Rectangle {
 export component TextField inherits Rectangle {
     in property <string> placeholder;
     in-out property <string> text <=> ti.text;
+    // borderless inline variant
+    in property <bool> flat;
+    callback accepted();   // Enter / mobile return key
 
-    height: 44px;
-    background: Theme.bg;
+    height: root.flat ? 36px : 44px;
+    background: root.flat ? transparent : Theme.bg;
     border-radius: Theme.radius-sm;
-    border-width: 1px;
+    border-width: root.flat ? 0px : 1px;
     border-color: ti.has-focus ? Theme.accent : Theme.line;
     animate border-color { duration: Theme.quick; }
 
     // placeholder sits behind the (transparent) input; hidden once typed
     Text {
-        x: 12px;
+        x: root.flat ? 0px : 12px;
         height: 100%;
         text: root.placeholder;
         visible: ti.text == "";
@@ -207,8 +210,8 @@ export component TextField inherits Rectangle {
     }
 
     HorizontalLayout {
-        padding-left: 12px;
-        padding-right: 12px;
+        padding-left: root.flat ? 0px : 12px;
+        padding-right: root.flat ? 0px : 12px;
         ti := TextInput {
             vertical-alignment: center;
             color: Theme.ink;
@@ -216,6 +219,7 @@ export component TextField inherits Rectangle {
             single-line: true;
             wrap: no-wrap;
             selection-background-color: Theme.accent-2;
+            accepted => { root.accepted(); }
         }
     }
 }

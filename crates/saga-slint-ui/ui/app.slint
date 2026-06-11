@@ -30,8 +30,7 @@ export struct DaySignpost {
     echoes: [EchoItem],
 }
 
-// One editable checklist row in the composer. Backed by a Rust
-// VecModel so add/remove/toggle can mutate it live.
+// One editable checklist row in the composer.
 export struct ChecklistDraft {
     text: string,
     done: bool,
@@ -62,8 +61,6 @@ export component App inherits Window {
     property <string> draft-priority: "medium";
     property <bool> draft-completed: false;
 
-    // Draft checklist, fed + mutated by Rust via the callbacks below.
-    // draft-new-item holds the "add a step" field until it's pushed.
     in property <[ChecklistDraft]> draft-checklist;
     property <string> draft-new-item: "";
 
@@ -83,13 +80,10 @@ export component App inherits Window {
     callback toggle-complete(string);                       // (id)
     callback delete-echo(string);                           // (id)
 
-    // Checklist editing acts on the Rust-backed draft-checklist model.
     callback checklist-add(string);                         // (text)
     callback checklist-remove(int);                         // (index)
     callback checklist-toggle(int);                         // (index)
-    // Fills draft-checklist when the composer opens: "" = new (clear),
-    // an id = load that task's items.
-    callback begin-task-edit(string);                       // (id or "")
+    callback begin-task-edit(string);                       // "" = new task; id loads its items
 
     function open-new-plain() {
         root.draft-id = "";
@@ -522,6 +516,7 @@ export component App inherits Window {
                 padding: 20px;
                 spacing: 12px;
 
+                // header (pinned)
                 HorizontalLayout {
                     Text {
                         text: (root.draft-id == "" ? "New " : "Edit ") + (root.draft-kind == "task" ? "Task Echo" : "Echo");
@@ -538,155 +533,148 @@ export component App inherits Window {
                     }
                 }
 
-                // title (tasks only)
-                if root.draft-kind == "task" : TextField {
-                    text <=> root.draft-title;
-                    placeholder: "What needs doing?";
-                }
-
-                // body: plain markdown, or task description
-                TextArea {
-                    text <=> root.draft-body;
-                    placeholder: root.draft-kind == "task" ? "Add a description…" : "Write your echo…";
+                // scrolling form (header + buttons stay pinned)
+                form := ScrollView {
                     vertical-stretch: 1;
-                }
+                    VerticalLayout {
+                        width: form.visible-width;
+                        spacing: 12px;
 
-                // checklist (tasks only)
-                if root.draft-kind == "task" : VerticalLayout {
-                    spacing: 8px;
-                    Text {
-                        text: "Checklist";
-                        color: Theme.ink-soft;
-                        font-size: 12px;
-                        font-weight: 700;
-                    }
+                        // title (tasks only)
+                        if root.draft-kind == "task" : TextField {
+                            text <=> root.draft-title;
+                            placeholder: "What needs doing?";
+                        }
 
-                    for item[idx] in root.draft-checklist : HorizontalLayout {
-                        spacing: 10px;
-                        CheckBox {
-                            checked: item.done;
-                            toggled => { root.checklist-toggle(idx); }
+                        // body: plain markdown, or task description
+                        TextArea {
+                            text <=> root.draft-body;
+                            placeholder: root.draft-kind == "task" ? "Add a description…" : "Write your echo…";
+                            height: root.draft-kind == "task" ? 100px : 240px;
                         }
-                        Text {
-                            text: item.text;
-                            color: item.done ? Theme.ink-faint : Theme.ink;
-                            font-size: 14px;
-                            vertical-alignment: center;
-                            horizontal-stretch: 1;
-                            wrap: word-wrap;
-                        }
-                        // remove this item
-                        Rectangle {
-                            width: 26px;
-                            height: 26px;
-                            border-radius: 8px;
-                            background: rm.has-hover ? #c0392b14 : transparent;
-                            animate background { duration: Theme.quick; }
+
+                        // checklist (tasks only)
+                        if root.draft-kind == "task" : VerticalLayout {
+                            spacing: 8px;
                             Text {
-                                text: "✕";
-                                color: Theme.ink-faint;
-                                font-size: 13px;
-                                horizontal-alignment: center;
-                                vertical-alignment: center;
+                                text: "Checklist";
+                                color: Theme.ink-soft;
+                                font-size: 12px;
+                                font-weight: 700;
                             }
-                            rm := TouchArea {
-                                clicked => { root.checklist-remove(idx); }
-                            }
-                        }
-                    }
 
-                    // add a new item
-                    HorizontalLayout {
-                        spacing: 8px;
-                        TextField {
-                            text <=> root.draft-new-item;
-                            placeholder: "Add a step…";
-                            horizontal-stretch: 1;
-                        }
-                        Rectangle {
-                            width: 44px;
-                            height: 44px;
-                            border-radius: Theme.radius-sm;
-                            border-width: 1px;
-                            border-color: add.has-hover ? Theme.accent : Theme.line;
-                            background: add.has-hover ? Theme.surface-2 : Theme.bg;
-                            animate border-color, background { duration: Theme.quick; }
-                            Text {
-                                text: "+";
-                                color: Theme.accent;
-                                font-size: 22px;
-                                font-weight: 800;
-                                horizontal-alignment: center;
-                                vertical-alignment: center;
+                            for item[idx] in root.draft-checklist : HorizontalLayout {
+                                spacing: 10px;
+                                CheckBox {
+                                    checked: item.done;
+                                    toggled => { root.checklist-toggle(idx); }
+                                }
+                                Text {
+                                    text: item.text;
+                                    color: item.done ? Theme.ink-faint : Theme.ink;
+                                    font-size: 14px;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                    wrap: word-wrap;
+                                }
+                                // remove item
+                                Rectangle {
+                                    width: 26px;
+                                    height: 26px;
+                                    border-radius: 8px;
+                                    background: rm.has-hover ? #c0392b14 : transparent;
+                                    animate background { duration: Theme.quick; }
+                                    Text {
+                                        text: "✕";
+                                        color: Theme.ink-faint;
+                                        font-size: 13px;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                    rm := TouchArea {
+                                        clicked => { root.checklist-remove(idx); }
+                                    }
+                                }
                             }
-                            add := TouchArea {
-                                clicked => {
-                                    if (root.draft-new-item != "") {
-                                        root.checklist-add(root.draft-new-item);
-                                        root.draft-new-item = "";
+
+                            // add-item row (Enter to add)
+                            HorizontalLayout {
+                                spacing: 10px;
+                                Rectangle {
+                                    width: 24px;
+                                    height: 24px;
+                                    border-radius: 7px;
+                                    border-width: 2px;
+                                    border-color: Theme.ink-faint;
+                                }
+                                TextField {
+                                    flat: true;
+                                    text <=> root.draft-new-item;
+                                    placeholder: "add item…";
+                                    horizontal-stretch: 1;
+                                    accepted => {
+                                        if (root.draft-new-item != "") {
+                                            root.checklist-add(root.draft-new-item);
+                                            root.draft-new-item = "";
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
-                }
 
-                // priority (tasks only)
-                if root.draft-kind == "task" : VerticalLayout {
-                    spacing: 6px;
-                    Text {
-                        text: "Priority";
-                        color: Theme.ink-soft;
-                        font-size: 12px;
-                        font-weight: 700;
-                    }
-                    HorizontalLayout {
-                        spacing: 8px;
-                        for p in ["low", "medium", "high", "critical"] : Rectangle {
-                            height: 34px;
-                            border-radius: 10px;
-                            border-width: 1px;
-                            border-color: root.draft-priority == p ? Theme.accent : Theme.line;
-                            background: root.draft-priority == p ? Theme.accent : Theme.bg;
-                            animate background, border-color { duration: Theme.quick; }
+                        // priority (tasks only)
+                        if root.draft-kind == "task" : VerticalLayout {
+                            spacing: 6px;
                             Text {
-                                width: 100%;
-                                height: 100%;
-                                text: p;
-                                font-size: 13px;
+                                text: "Priority";
+                                color: Theme.ink-soft;
+                                font-size: 12px;
                                 font-weight: 700;
-                                horizontal-alignment: center;
-                                vertical-alignment: center;
-                                color: root.draft-priority == p ? Theme.on-accent : Theme.ink-soft;
                             }
-                            TouchArea {
-                                clicked => { root.draft-priority = p; }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                for p in ["low", "medium", "high", "critical"] : Rectangle {
+                                    height: 34px;
+                                    border-radius: 10px;
+                                    border-width: 1px;
+                                    border-color: root.draft-priority == p ? Theme.accent : Theme.line;
+                                    background: root.draft-priority == p ? Theme.accent : Theme.bg;
+                                    animate background, border-color { duration: Theme.quick; }
+                                    Text {
+                                        width: 100%;
+                                        height: 100%;
+                                        text: p;
+                                        font-size: 13px;
+                                        font-weight: 700;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                        color: root.draft-priority == p ? Theme.on-accent : Theme.ink-soft;
+                                    }
+                                    TouchArea {
+                                        clicked => { root.draft-priority = p; }
+                                    }
+                                }
+                            }
+                        }
+
+                        // completion (tasks only) — manual, independent of the checklist
+                        if root.draft-kind == "task" : HorizontalLayout {
+                            spacing: 10px;
+                            CheckBox {
+                                checked: root.draft-completed;
+                                toggled => { root.draft-completed = !root.draft-completed; }
+                            }
+                            Text {
+                                text: "Completed";
+                                color: Theme.ink-soft;
+                                font-size: 14px;
+                                vertical-alignment: center;
                             }
                         }
                     }
                 }
 
-                // completion (tasks only). With a checklist, completion is
-                // derived from the items, so the manual toggle is hidden.
-                if root.draft-kind == "task" && root.draft-checklist.length == 0 : HorizontalLayout {
-                    spacing: 10px;
-                    CheckBox {
-                        checked: root.draft-completed;
-                        toggled => { root.draft-completed = !root.draft-completed; }
-                    }
-                    Text {
-                        text: "Completed";
-                        color: Theme.ink-soft;
-                        font-size: 14px;
-                        vertical-alignment: center;
-                    }
-                }
-                if root.draft-kind == "task" && root.draft-checklist.length > 0 : Text {
-                    text: "Completes when all steps are checked.";
-                    color: Theme.ink-faint;
-                    font-size: 12px;
-                }
-
+                // actions (pinned)
                 HorizontalLayout {
                     spacing: 10px;
                     if root.draft-id != "" : GhostButton {
