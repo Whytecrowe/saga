@@ -47,6 +47,7 @@ export component App inherits Window {
     // Data supplied by Rust.
     in property <[DaySignpost]> days;
     in property <string> today-iso;
+    in property <string> seed-text;
 
     // Which screen is showing: "today" or "path".
     property <string> current-view: "path";
@@ -64,6 +65,10 @@ export component App inherits Window {
     in property <[ChecklistDraft]> draft-checklist;
     property <string> draft-new-item: "";
 
+    // Seed editor state.
+    property <bool> seed-editor-open: false;
+    property <string> seed-draft: "";
+
     // Type-picker + delete-menu state.
     property <bool> picker-open: false;
     property <bool> confirm-open: false;
@@ -79,6 +84,8 @@ export component App inherits Window {
     callback update-task(string, string, string, string, bool);  // (id, title, desc, priority, completed)
     callback toggle-complete(string);                       // (id)
     callback delete-echo(string);                           // (id)
+
+    callback set-seed(string);                              // (text) upsert today's intention
 
     callback checklist-add(string);                         // (text)
     callback checklist-remove(int);                         // (index)
@@ -118,6 +125,10 @@ export component App inherits Window {
     function ask-delete(id: string) {
         root.confirm-id = id;
         root.confirm-open = true;
+    }
+    function open-seed-editor() {
+        root.seed-draft = root.seed-text;
+        root.seed-editor-open = true;
     }
 
     // Fires ~0.5s after a card press begins, unless the finger lifts
@@ -195,7 +206,8 @@ export component App inherits Window {
                 }
 
                 SeedScene {
-                    text: "Be fully present with the people in front of me.";
+                    text: root.seed-text == "" ? "Plant today's intention" : root.seed-text;
+                    clicked => { root.open-seed-editor(); }
                 }
 
                 // TODO: Tasks / Today's Echoes modules go here
@@ -703,6 +715,74 @@ export component App inherits Window {
                                 }
                             }
                             root.composer-open = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- seed editor overlay (edit today's intention) ----
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        visible: seed-editor-open;
+
+        Rectangle {
+            background: #3e2723;
+            opacity: seed-editor-open ? 0.34 : 0.0;
+            animate opacity { duration: Theme.base; }
+            TouchArea {
+                clicked => { root.seed-editor-open = false; }
+            }
+        }
+
+        Rectangle {
+            width: Math.min(480px, parent.width - 32px);
+            height: 280px;
+            x: (parent.width - self.width) / 2;
+            y: seed-editor-open ? (parent.height - self.height) / 2 : parent.height;
+            opacity: seed-editor-open ? 1.0 : 0.0;
+            background: Theme.surface;
+            border-radius: 20px;
+            border-width: 1px;
+            border-color: Theme.line;
+            drop-shadow-color: #3e272366;
+            drop-shadow-blur: 60px;
+            drop-shadow-offset-y: 22px;
+            animate y, opacity {
+                duration: Theme.base;
+                easing: Theme.doey;
+            }
+
+            VerticalLayout {
+                padding: 20px;
+                spacing: 12px;
+                Text {
+                    text: "Today's intention";
+                    color: Theme.ink;
+                    font-size: 18px;
+                    font-weight: 800;
+                }
+                TextArea {
+                    text <=> root.seed-draft;
+                    placeholder: "What do you want to tend today?";
+                    vertical-stretch: 1;
+                }
+                HorizontalLayout {
+                    spacing: 10px;
+                    Rectangle { horizontal-stretch: 1; }
+                    GhostButton {
+                        text: "Cancel";
+                        width: 110px;
+                        clicked => { root.seed-editor-open = false; }
+                    }
+                    PrimaryButton {
+                        text: "Save";
+                        width: 130px;
+                        clicked => {
+                            root.set-seed(root.seed-draft);
+                            root.seed-editor-open = false;
                         }
                     }
                 }

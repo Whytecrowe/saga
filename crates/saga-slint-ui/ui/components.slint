@@ -314,6 +314,7 @@ export component AddModuleSlot inherits Rectangle {
 // TODO: reflection gradient ("tended ··· present") once reflections land.
 export component SeedScene inherits Rectangle {
     in property <string> text;
+    callback clicked();
 
     height: 200px;
     border-radius: Theme.radius;
@@ -373,6 +374,10 @@ export component SeedScene inherits Rectangle {
             }
             Rectangle { width: 70px; }
         }
+    }
+
+    TouchArea {
+        clicked => { root.clicked(); }
     }
 }
 

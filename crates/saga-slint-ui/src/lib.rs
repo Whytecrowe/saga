@@ -2,7 +2,7 @@ slint::include_modules!();
 
 use chrono::{Local, NaiveDate};
 use saga_core::model::{
-    ECHO_TYPE_PLAIN, ECHO_TYPE_TASK, Echo, EchoContent, PlainData, Priority, TaskData,
+    ECHO_TYPE_PLAIN, ECHO_TYPE_TASK, Echo, EchoContent, PlainData, Priority, Seed, SeedKind, TaskData,
 };
 use saga_storage_sqlite::{Storage, open_default};
 use slint::{Model, ModelRc, SharedString, VecModel};
@@ -25,6 +25,34 @@ pub fn run() {
     ui.set_draft_checklist(ModelRc::from(checklist_model.clone()));
 
     load_timeline(&ui, &storage);
+    ui.set_seed_text(seed_text_for(&storage, today).into());
+
+    // ---- save today's intention (create or update the Being seed) ----
+    {
+        let ui_weak = ui.as_weak();
+        let storage = storage.clone();
+
+        ui.on_set_seed(move |text| {
+            let text = text.trim().to_string();
+            let today = Local::now().date_naive();
+            match current_seed(&storage, today) {
+                Some(mut seed) => {
+                    seed.text = text;
+                    seed.updated_at = Local::now();
+                    storage.update_seed(&seed).expect("Failed to update seed");
+                }
+                None => {
+                    if !text.is_empty() {
+                        let seed = Seed::new(text, SeedKind::Being, today, None);
+                        storage.save_seed(&seed).expect("Failed to save seed");
+                    }
+                }
+            }
+            if let Some(ui) = ui_weak.upgrade() {
+                ui.set_seed_text(seed_text_for(&storage, today).into());
+            }
+        });
+    }
 
     // ---- checklist: add an item ----
     {
@@ -190,6 +218,22 @@ pub fn run() {
     }
 
     ui.run().expect("Failed to run UI");
+}
+
+// Today's intention = the most recent active Being seed.
+fn current_seed(storage: &Storage, today: NaiveDate) -> Option<Seed> {
+    storage
+        .get_seeds_active_on(today)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|s| s.kind == SeedKind::Being)
+        .last()
+}
+
+fn seed_text_for(storage: &Storage, today: NaiveDate) -> String {
+    current_seed(storage, today)
+        .map(|s| s.text)
+        .unwrap_or_default()
 }
 
 fn reload(ui_weak: &slint::Weak<App>, storage: &Storage) {
