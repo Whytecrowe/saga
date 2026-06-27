@@ -129,27 +129,28 @@ export component SegTab inherits Rectangle {
     in property <bool> active;
     callback clicked();
 
-    height: 30px;
-    border-radius: 9px;
+    height: 36px;
+    border-radius: 10px;
     background: root.active ? Theme.accent : transparent;
     animate background {
         duration: Theme.base;
         easing: Theme.doey;
     }
 
-    HorizontalLayout {
-        padding-left: 16px;
-        padding-right: 16px;
-        Text {
-            text: root.label;
-            color: root.active ? Theme.on-accent : Theme.ink-soft;
-            font-size: 13px;
-            font-weight: 700;
-            vertical-alignment: center;
-            animate color {
-                duration: Theme.base;
-                easing: Theme.doey;
-            }
+    // label fills the tab so it centers when the tab is stretched
+    // to fill its share of a full-width segmented control
+    Text {
+        width: 100%;
+        height: 100%;
+        text: root.label;
+        color: root.active ? Theme.on-accent : Theme.ink-soft;
+        font-size: 14px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        animate color {
+            duration: Theme.base;
+            easing: Theme.doey;
         }
     }
 
@@ -260,6 +261,117 @@ export component TextArea inherits Rectangle {
             single-line: false;
             wrap: word-wrap;
             selection-background-color: Theme.accent-2;
+        }
+    }
+}
+
+// Uppercase clay header above a module's content.
+export component SectionLabel inherits Text {
+    color: Theme.clay;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 1px;
+}
+
+// Add-a-module slot. Non-functional for now.
+// TODO: open a module picker once runtime customization lands.
+// (Outline is solid — Slint has no dashed border.)
+export component AddModuleSlot inherits Rectangle {
+    callback clicked();
+
+    height: 96px;
+    border-radius: Theme.radius;
+    border-width: 2px;
+    border-color: Theme.line;
+    background: ta.has-hover ? Theme.surface-2 : transparent;
+    animate background { duration: Theme.quick; }
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 2px;
+        Text {
+            text: "+";
+            color: Theme.ink-faint;
+            font-size: 24px;
+            font-weight: 700;
+            horizontal-alignment: center;
+        }
+        Text {
+            text: "add a module";
+            color: Theme.ink-faint;
+            font-size: 13px;
+            horizontal-alignment: center;
+        }
+    }
+
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// Today's Seed hero: dawn-lit banner with the day's intention.
+// TODO(3b): ground band + sprout + grass illustration along the bottom.
+// TODO: reflection gradient ("tended ··· present") once reflections land.
+export component SeedScene inherits Rectangle {
+    in property <string> text;
+
+    height: 200px;
+    border-radius: Theme.radius;
+    clip: true;
+    border-width: 1px;
+    border-color: Theme.line;
+    background: @linear-gradient(160deg, #ffe6c4 0%, #fff3e0 55%, #fffaf0 100%);
+
+    // sun: faint halo + brighter disc, top-right
+    Rectangle {
+        x: parent.width - 96px;
+        y: 18px;
+        width: 96px;
+        height: 96px;
+        border-radius: 48px;
+        background: #f6d58c40;
+    }
+    Rectangle {
+        x: parent.width - 78px;
+        y: 36px;
+        width: 60px;
+        height: 60px;
+        border-radius: 30px;
+        background: Theme.accent-2;
+    }
+
+    VerticalLayout {
+        padding: 20px;
+        spacing: 12px;
+        alignment: start;
+
+        // label row: seed mark + heading
+        HorizontalLayout {
+            alignment: start;
+            spacing: 8px;
+            // TODO(3b): replace dot with a drawn leaf
+            Rectangle {
+                y: 2px;
+                width: 13px;
+                height: 13px;
+                border-radius: 6.5px;
+                background: Theme.clay;
+            }
+            SectionLabel { text: "TODAY'S SEED"; }
+        }
+
+        // the intention, in serif — a spacer keeps it clear of the sun
+        HorizontalLayout {
+            Text {
+                text: root.text;
+                color: Theme.ink;
+                font-family: Theme.serif;
+                font-size: 25px;
+                font-weight: 500;
+                wrap: word-wrap;
+                horizontal-stretch: 1;
+            }
+            Rectangle { width: 70px; }
         }
     }
 }

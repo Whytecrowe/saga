@@ -1,5 +1,5 @@
 import { Theme } from "theme.slint";
-import { Card, PrimaryButton, GhostButton, Chip, CheckBox, TextField, TextArea, SegTab } from "components.slint";
+import { Card, PrimaryButton, GhostButton, Chip, CheckBox, TextField, TextArea, SegTab, SectionLabel, AddModuleSlot, SeedScene } from "components.slint";
 import { ScrollView } from "std-widgets.slint";
 
 // One Echo, flattened for display.
@@ -134,52 +134,29 @@ export component App inherits Window {
 
     // ---- header + scrolling timeline ----
     VerticalLayout {
-        Rectangle {
-            height: 84px;
-            VerticalLayout {
-                padding: 22px;
-                padding-bottom: 8px;
-                alignment: end;
-                HorizontalLayout {
-                    alignment: start;
-                    spacing: 10px;
-                    Text {
-                        text: "Saga";
-                        color: Theme.clay;
-                        font-size: 26px;
-                        font-weight: 800;
-                    }
-                    Text {
-                        text: "echoes of your path";
-                        color: Theme.ink-faint;
-                        font-size: 13px;
-                        vertical-alignment: bottom;
-                    }
-                }
-            }
-        }
-
-        // view switch: Today vs Path
+        // view switch: Today vs Path (full-width segmented pill, top of screen)
         HorizontalLayout {
-            alignment: start;
             padding-left: 22px;
             padding-right: 22px;
-            padding-bottom: 10px;
+            padding-top: 16px;
+            padding-bottom: 12px;
             Rectangle {
-                height: 38px;
-                border-radius: 12px;
+                height: 46px;
+                border-radius: 14px;
                 background: Theme.surface-2;
                 border-width: 1px;
                 border-color: Theme.line;
                 HorizontalLayout {
-                    padding: 4px;
-                    spacing: 4px;
+                    padding: 5px;
+                    spacing: 5px;
                     SegTab {
+                        horizontal-stretch: 1;
                         label: "Today";
                         active: root.current-view == "today";
                         clicked => { root.current-view = "today"; }
                     }
                     SegTab {
+                        horizontal-stretch: 1;
                         label: "Path";
                         active: root.current-view == "path";
                         clicked => { root.current-view = "path"; }
@@ -188,23 +165,45 @@ export component App inherits Window {
             }
         }
 
-        // Today screen
-        if root.current-view == "today" : VerticalLayout {
+        // Today screen — scrollable stack of module cards.
+        if root.current-view == "today" : ScrollView {
             vertical-stretch: 1;
-            alignment: center;
-            spacing: 6px;
-            Text {
-                text: "Today";
-                color: Theme.ink;
-                font-size: 22px;
-                font-weight: 800;
-                horizontal-alignment: center;
-            }
-            Text {
-                text: "Your seed and today's tasks will live here.";
-                color: Theme.ink-faint;
-                font-size: 14px;
-                horizontal-alignment: center;
+            VerticalLayout {
+                alignment: start;
+                padding: 22px;
+                padding-top: 6px;
+                spacing: 16px;
+
+                // greeting + date — TODO: wire to the clock
+                HorizontalLayout {
+                    alignment: space-between;
+                    Text {
+                        text: "Good morning";
+                        color: Theme.clay;
+                        font-size: 22px;
+                        font-weight: 600;
+                        vertical-alignment: bottom;
+                    }
+                    Text {
+                        text: "Thursday, June 11";
+                        color: Theme.ink;
+                        font-family: Theme.serif;
+                        font-size: 17px;
+                        font-weight: 600;
+                        vertical-alignment: bottom;
+                    }
+                }
+
+                SeedScene {
+                    text: "Be fully present with the people in front of me.";
+                }
+
+                // TODO: Tasks / Today's Echoes modules go here
+
+                AddModuleSlot { }
+
+                // FAB clearance
+                Rectangle { height: 96px; }
             }
         }
 
