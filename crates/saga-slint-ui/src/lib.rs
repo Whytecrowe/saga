@@ -1,139 +1,438 @@
 slint::include_modules!();
 
-use chrono::Local;
-use saga_core::model::{Echo, EchoContent, PlainData, Section};
-use saga_storage_sqlite::Storage;
+use chrono::{Local, NaiveDate};
+use saga_core::model::{
+    ECHO_TYPE_PLAIN, ECHO_TYPE_TASK, Echo, EchoContent, PlainData, Priority, Seed, SeedKind, TaskData,
+};
+use saga_storage_sqlite::{Storage, open_default};
+use slint::{Model, ModelRc, SharedString, VecModel};
+use std::collections::BTreeMap;
 use std::rc::Rc;
+use uuid::Uuid;
 
 pub fn run() {
-    let db_path = get_database_path();
-    let storage = Storage::new(&db_path).expect("Failed to open database");
+    let storage = open_storage();
 
     let ui = App::new().expect("Failed to create UI");
 
-    load_data(&ui, &storage);
+    let today = Local::now().date_naive();
+    ui.set_today_iso(today.to_string().into());
 
-    let ui_weak = ui.as_weak();
-    let storage_clone = Rc::new(storage);
+    let storage = Rc::new(storage);
 
-    // add sections
+    // The composer's editable checklist, shared with the callbacks below.
+    let checklist_model: Rc<VecModel<ChecklistDraft>> = Rc::new(VecModel::default());
+    ui.set_draft_checklist(ModelRc::from(checklist_model.clone()));
+
+    load_timeline(&ui, &storage);
+    ui.set_seed_text(seed_text_for(&storage, today).into());
+
+    // ---- save today's intention (create or update the Being seed) ----
     {
-        let ui_weak = ui_weak.clone();
-        let storage = storage_clone.clone();
+        let ui_weak = ui.as_weak();
+        let storage = storage.clone();
 
-        ui.on_add_section(move |name| {
-            let sort_order = storage
-                .get_next_sort_order()
-                .expect("Failed to get sort order");
-            let new_section = Section::new(name.to_string(), sort_order);
-            storage
-                .save_section(&new_section)
-                .expect("Failed to save section");
-
+        ui.on_set_seed(move |text| {
+            let text = text.trim().to_string();
+            let today = Local::now().date_naive();
+            match current_seed(&storage, today) {
+                Some(mut seed) => {
+                    seed.text = text;
+                    seed.updated_at = Local::now();
+                    storage.update_seed(&seed).expect("Failed to update seed");
+                }
+                None => {
+                    if !text.is_empty() {
+                        let seed = Seed::new(text, SeedKind::Being, today, None);
+                        storage.save_seed(&seed).expect("Failed to save seed");
+                    }
+                }
+            }
             if let Some(ui) = ui_weak.upgrade() {
-                load_data(&ui, &storage);
+                ui.set_seed_text(seed_text_for(&storage, today).into());
             }
         });
     }
 
-    // create echo callback
+    // ---- checklist: add an item ----
     {
-        let ui_weak = ui_weak.clone();
-        let storage = storage_clone.clone();
+        let model = checklist_model.clone();
 
-        ui.on_save_echo(move |echo_item| {
-            let section_name = echo_item.section_name.to_string();
-            let title = echo_item.title.to_string();
-            let markdown = echo_item.markdown.to_string();
-            let id_str = echo_item.id.to_string();
-
-            // Find or create section
-            let sections = storage.get_all_sections().expect("Failed to load sections");
-
-            let section = sections
-                .iter()
-                .find(|s| s.name == section_name.as_str())
-                .cloned()
-                .unwrap_or_else(|| {
-                    let max_sort_order = sections.iter().map(|s| s.sort_order).max().unwrap_or(0);
-
-                    // Section doesn't exist - create it
-                    let new_section = Section::new(section_name.to_string(), max_sort_order + 1);
-                    storage
-                        .save_section(&new_section)
-                        .expect("Failed to save section");
-                    new_section
+        ui.on_checklist_add(move |text| {
+            let text = text.trim().to_string();
+            if !text.is_empty() {
+                model.push(ChecklistDraft {
+                    text: text.into(),
+                    done: false,
                 });
+            }
+        });
+    }
 
-            if id_str.is_empty() {
-                // Make a new Echo if ID doesn't exist yet
-                let day_str = echo_item.day.to_string();
-                let target_day = chrono::NaiveDate::parse_from_str(&day_str, "%Y-%m-%d")
-                    .unwrap_or_else(|_| Local::now().date_naive());
+    // ---- checklist: remove an item ----
+    {
+        let model = checklist_model.clone();
 
-                let echo = Echo::new(
-                    target_day,
-                    section.id,
-                    title.to_string(),
-                    EchoContent::PlainEcho(PlainData {
-                        markdown: markdown.to_string(),
-                    }),
-                );
+        ui.on_checklist_remove(move |index| {
+            let i = index as usize;
+            if i < model.row_count() {
+                model.remove(i);
+            }
+        });
+    }
 
-                storage.save_echo(&echo).expect("Failed to save echo");
-            } else {
-                // Update existing Echo
-                let uuid = uuid::Uuid::parse_str(&id_str).expect("Invalid UUID for Echo");
-                if let Some(mut echo) = storage.get_echo(&uuid).unwrap() {
-                    echo.title = title;
-                    echo.section_id = section.id;
-                    echo.update_content(EchoContent::PlainEcho(PlainData {
-                        markdown,
-                    }));
+    // ---- checklist: toggle an item done ----
+    {
+        let model = checklist_model.clone();
 
-                    storage.update_echo(&echo).expect("Failed to update echo");
+        ui.on_checklist_toggle(move |index| {
+            let i = index as usize;
+            if let Some(mut row) = model.row_data(i) {
+                row.done = !row.done;
+                model.set_row_data(i, row);
+            }
+        });
+    }
+
+    // ---- checklist: fill the draft when the composer opens ----
+    {
+        let model = checklist_model.clone();
+        let storage = storage.clone();
+
+        ui.on_begin_task_edit(move |id| {
+            if id.is_empty() {
+                model.set_vec(Vec::new());
+                return;
+            }
+            let rows = load_echo(&storage, &id)
+                .and_then(|echo| echo.as_task().map(checklist_to_draft))
+                .unwrap_or_default();
+            model.set_vec(rows);
+        });
+    }
+
+    // ---- create a Plain Echo ----
+    {
+        let ui_weak = ui.as_weak();
+        let storage = storage.clone();
+
+        ui.on_create_plain(move |day_iso, body| {
+            let echo = Echo::new(
+                parse_day(&day_iso),
+                String::new(),
+                EchoContent::PlainEcho(PlainData {
+                    markdown: body.to_string(),
+                }),
+            );
+            storage.save_echo(&echo).expect("Failed to save echo");
+            reload(&ui_weak, &storage);
+        });
+    }
+
+    // ---- edit a Plain Echo ----
+    {
+        let ui_weak = ui.as_weak();
+        let storage = storage.clone();
+
+        ui.on_update_plain(move |id, body| {
+            if let Some(mut echo) = load_echo(&storage, &id) {
+                echo.update_content(EchoContent::PlainEcho(PlainData {
+                    markdown: body.to_string(),
+                }));
+                storage.update_echo(&echo).expect("Failed to update echo");
+            }
+            reload(&ui_weak, &storage);
+        });
+    }
+
+    // ---- create a Task Echo ----
+    {
+        let ui_weak = ui.as_weak();
+        let storage = storage.clone();
+        let checklist_model = checklist_model.clone();
+
+        ui.on_create_task(move |day_iso, title, description, priority, completed| {
+            let mut echo = Echo::new_task(parse_day(&day_iso), title.to_string());
+            if let Some(task) = echo.as_task_mut() {
+                task.description = non_empty(&description);
+                task.priority = parse_priority(&priority);
+                apply_checklist(task, &checklist_model, completed);
+            }
+            storage.save_echo(&echo).expect("Failed to save task");
+            reload(&ui_weak, &storage);
+        });
+    }
+
+    // ---- edit a Task Echo ----
+    {
+        let ui_weak = ui.as_weak();
+        let storage = storage.clone();
+        let checklist_model = checklist_model.clone();
+
+        ui.on_update_task(move |id, title, description, priority, completed| {
+            if let Some(mut echo) = load_echo(&storage, &id) {
+                echo.title = title.to_string();
+                if let Some(task) = echo.as_task_mut() {
+                    task.description = non_empty(&description);
+                    task.priority = parse_priority(&priority);
+                    apply_checklist(task, &checklist_model, completed);
                 }
+                echo.updated_at = Local::now();
+                storage.update_echo(&echo).expect("Failed to update task");
             }
+            reload(&ui_weak, &storage);
+        });
+    }
 
-            if let Some(ui) = ui_weak.upgrade() {
-                load_data(&ui, &storage);
+    // ---- toggle a Task's completion from the card ----
+    {
+        let ui_weak = ui.as_weak();
+        let storage = storage.clone();
+
+        ui.on_toggle_complete(move |id| {
+            if let Some(mut echo) = load_echo(&storage, &id) {
+                if let Some(task) = echo.as_task_mut() {
+                    if task.completed {
+                        task.uncomplete();
+                    } else {
+                        task.complete();
+                    }
+                }
+                echo.updated_at = Local::now();
+                storage.update_echo(&echo).expect("Failed to update task");
             }
+            reload(&ui_weak, &storage);
+        });
+    }
+
+    // ---- delete an Echo ----
+    {
+        let ui_weak = ui.as_weak();
+        let storage = storage.clone();
+
+        ui.on_delete_echo(move |id| {
+            let uuid = Uuid::parse_str(&id).expect("Invalid Echo UUID");
+            storage.delete_echo(&uuid).expect("Failed to delete echo");
+            reload(&ui_weak, &storage);
         });
     }
 
     ui.run().expect("Failed to run UI");
 }
 
+// Today's intention = the most recent active Being seed.
+fn current_seed(storage: &Storage, today: NaiveDate) -> Option<Seed> {
+    storage
+        .get_seeds_active_on(today)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|s| s.kind == SeedKind::Being)
+        .last()
+}
+
+fn seed_text_for(storage: &Storage, today: NaiveDate) -> String {
+    current_seed(storage, today)
+        .map(|s| s.text)
+        .unwrap_or_default()
+}
+
+fn reload(ui_weak: &slint::Weak<App>, storage: &Storage) {
+    if let Some(ui) = ui_weak.upgrade() {
+        load_timeline(&ui, storage);
+    }
+}
+
+fn load_echo(storage: &Storage, id: &SharedString) -> Option<Echo> {
+    let uuid = Uuid::parse_str(id).expect("Invalid Echo UUID");
+    storage.get_echo(&uuid).expect("Failed to load echo")
+}
+
+fn parse_day(iso: &str) -> NaiveDate {
+    NaiveDate::parse_from_str(iso, "%Y-%m-%d").unwrap_or_else(|_| Local::now().date_naive())
+}
+
+fn non_empty(value: &SharedString) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn parse_priority(value: &str) -> Priority {
+    match value {
+        "low" => Priority::Low,
+        "high" => Priority::High,
+        "critical" => Priority::Critical,
+        _ => Priority::Medium,
+    }
+}
+
+fn priority_label(priority: &Priority) -> &'static str {
+    match priority {
+        Priority::Low => "low",
+        Priority::Medium => "medium",
+        Priority::High => "high",
+        Priority::Critical => "critical",
+    }
+}
+
+fn checklist_to_draft(task: &TaskData) -> Vec<ChecklistDraft> {
+    task.checklist
+        .iter()
+        .map(|item| ChecklistDraft {
+            text: item.text.clone().into(),
+            done: item.done,
+        })
+        .collect()
+}
+
+// Rebuilds the checklist from the draft rows; completion is set manually,
+// independent of the items.
+fn apply_checklist(task: &mut TaskData, model: &VecModel<ChecklistDraft>, completed: bool) {
+    task.clear_checklist();
+    for i in 0..model.row_count() {
+        let row = model.row_data(i).expect("row index in range");
+        let text = row.text.trim().to_string();
+        if text.is_empty() {
+            continue;
+        }
+        task.add_item(text);
+        if row.done {
+            let last = task.checklist.len() - 1;
+            task.set_item_done(last, true);
+        }
+    }
+    if completed {
+        task.complete();
+    } else {
+        task.uncomplete();
+    }
+}
+
+// Reads Plain + Task Echoes, groups them by day (newest first), and
+// hands the nested model to the timeline.
+fn load_timeline(ui: &App, storage: &Storage) {
+    let echoes = storage.get_all_echoes().expect("Failed to load echoes");
+    let today = Local::now().date_naive();
+
+    let mut by_day: BTreeMap<NaiveDate, Vec<Echo>> = BTreeMap::new();
+    for echo in echoes.into_iter().filter(is_shown) {
+        by_day.entry(echo.day).or_default().push(echo);
+    }
+    by_day.entry(today).or_default();
+
+    let mut days: Vec<DaySignpost> = Vec::new();
+    for (day, mut day_echoes) in by_day.into_iter().rev() {
+        day_echoes.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+
+        let items: Vec<EchoItem> = day_echoes.iter().map(echo_to_item).collect();
+
+        days.push(DaySignpost {
+            iso: day.to_string().into(),
+            label: day.format("%A, %B %e").to_string().into(),
+            rel: relative_label(day, today).into(),
+            is_today: day == today,
+            echoes: ModelRc::new(VecModel::from(items)),
+        });
+    }
+
+    ui.set_days(ModelRc::new(VecModel::from(days)));
+}
+
+// Plain + Task are the only types with UI so far.
+fn is_shown(echo: &Echo) -> bool {
+    let kind = echo.content_type_name();
+    kind == ECHO_TYPE_PLAIN || kind == ECHO_TYPE_TASK
+}
+
+fn echo_to_item(echo: &Echo) -> EchoItem {
+    let tags: Vec<SharedString> = echo.tags.iter().map(|t| t.clone().into()).collect();
+
+    let mut item = EchoItem {
+        id: echo.id.to_string().into(),
+        kind: "plain".into(),
+        title: SharedString::new(),
+        body: SharedString::new(),
+        time: echo.created_at.format("%I:%M %p").to_string().into(),
+        completed: false,
+        priority: SharedString::new(),
+        checklist_done: 0,
+        checklist_total: 0,
+        mood: echo.mood.map(|v| v as i32).unwrap_or(0),
+        energy: echo.energy.map(|v| v as i32).unwrap_or(0),
+        has_mood: echo.mood.is_some(),
+        has_energy: echo.energy.is_some(),
+        pinned: echo.pinned,
+        tags: ModelRc::new(VecModel::from(tags)),
+    };
+
+    match &echo.content {
+        EchoContent::TaskEcho(task) => {
+            let (done, total) = task.progress();
+            item.kind = "task".into();
+            item.title = echo.title.clone().into();
+            item.body = task.description.clone().unwrap_or_default().into();
+            item.completed = task.completed;
+            item.priority = priority_label(&task.priority).into();
+            item.checklist_done = done as i32;
+            item.checklist_total = total as i32;
+        }
+        EchoContent::PlainEcho(plain) => {
+            item.body = plain.markdown.clone().into();
+        }
+        _ => {}
+    }
+
+    item
+}
+
+fn relative_label(day: NaiveDate, today: NaiveDate) -> String {
+    let diff = (today - day).num_days();
+    match diff {
+        0 => "Today".to_string(),
+        1 => "Yesterday".to_string(),
+        -1 => "Tomorrow".to_string(),
+        n if n > 1 => format!("{n} days ago"),
+        n => format!("in {} days", -n),
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+fn open_storage() -> Storage {
+    open_default().expect("Failed to open database")
+}
+
 #[cfg(target_os = "android")]
-fn get_database_path() -> String {
+fn open_storage() -> Storage {
+    Storage::new(android_db_path()).expect("Failed to open database")
+}
+
+#[cfg(target_os = "android")]
+fn android_db_path() -> String {
     use jni::JavaVM;
     use jni::objects::{JObject, JString};
 
     let ctx = ndk_context::android_context();
 
-    // 1. Get the Java VM and attach the current thread
     let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }.unwrap();
     let mut env = vm.attach_current_thread().unwrap();
 
-    // 2. Wrap JNI calls in a local frame (size 16 is plenty for this)
-    // This ensures all JObjects created inside are cleared from memory immediately after.
     let path_result: String = env
         .with_local_frame(16, |env| {
             let context = unsafe { JObject::from_raw(ctx.context().cast()) };
 
-            // Call context.getFilesDir() -> returns a File object
             let files_dir = env
                 .call_method(&context, "getFilesDir", "()Ljava/io/File;", &[])
                 .map_err(|e| format!("Failed to call getFilesDir: {:?}", e))?
                 .l()?;
 
-            // Call files_dir.getAbsolutePath() -> returns a String object
             let path_obj = env
                 .call_method(&files_dir, "getAbsolutePath", "()Ljava/lang/String;", &[])
                 .map_err(|e| format!("Failed to get path: {:?}", e))?
                 .l()?;
 
-            // Convert the Java String object into a Rust String
             let jstring: JString = path_obj.into();
             let rust_str: String = env.get_string(&jstring)?.into();
 
@@ -141,85 +440,7 @@ fn get_database_path() -> String {
         })
         .expect("Failed to retrieve Android files directory");
 
-    // 3. Construct the final path
     format!("{}/saga.db", path_result)
-}
-
-#[cfg(not(target_os = "android"))]
-fn get_database_path() -> String {
-    "saga.db".to_string()
-}
-
-fn load_data(ui: &App, storage: &Storage) {
-    let all_sections = load_echoes_data(ui, storage);
-
-    let mut journey_days: Vec<JourneyDay> = Vec::new();
-    let today = Local::now().date_naive();
-
-    for i in 0..14 {
-        let date = today - chrono::Duration::days(i);
-        journey_days.push(JourneyDay {
-            day_id: date.to_string().into(),
-            display_name: date.format("%b %e").to_string().to_uppercase().into(),
-            is_today: i == 0,
-        })
-    }
-
-    ui.set_journey_days(Rc::new(slint::VecModel::from(journey_days)).into());
-
-    let section_names: Vec<slint::SharedString> =
-        all_sections.iter().map(|s| s.name.clone().into()).collect();
-
-    // Update the UI
-    ui.set_sections(Rc::new(slint::VecModel::from(section_names)).into());
-}
-
-fn load_echoes_data(ui: &App, storage: &Storage) -> Vec<Section> {
-    let echoes = storage.get_all_echoes().expect("Failed to load echoes");
-
-    let sections = storage.get_all_sections().expect("Failed to load sections");
-
-    let echo_items: Vec<EchoItem> = echoes
-        .iter()
-        .map(|e| {
-            let section_name = sections
-                .iter()
-                .find(|s| s.id == e.section_id)
-                .map(|s| s.name.clone())
-                .unwrap_or_else(|| "Unknown".to_string());
-
-            let body = body_text(&e.content);
-
-            let preview_text = body
-                .lines()
-                .next()
-                .unwrap_or("")
-                .chars()
-                .take(100)
-                .collect::<String>();
-
-            EchoItem {
-                id: e.id.to_string().into(),
-                title: e.title.clone().into(),
-                preview: preview_text.into(),
-                markdown: body.into(),
-                section_name: section_name.into(),
-                day: e.day.to_string().into(),
-                created_at: e.created_at.format("%I:%M %p").to_string().into(),
-            }
-        })
-        .collect();
-
-    ui.set_echoes(Rc::new(slint::VecModel::from(echo_items)).into());
-
-    sections
-}
-
-fn body_text(content: &EchoContent) -> String {
-    match content {
-        EchoContent::PlainEcho(data) => data.markdown.clone(),
-        _ => String::new(),
-    }
 }
 
 #[cfg(target_os = "android")]

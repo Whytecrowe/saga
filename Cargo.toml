@@ -1,6 +1,5 @@
 [workspace]
 members = [
-    "crates/saga-cli",
     "crates/saga-core",
     "crates/saga-slint-ui",
     "crates/saga-storage-sqlite",

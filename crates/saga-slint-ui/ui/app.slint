@@ -1,317 +1,843 @@
-import { Button, ScrollView, ListView, TextEdit, ComboBox, VerticalBox, HorizontalBox, LineEdit } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Card, PrimaryButton, GhostButton, Chip, CheckBox, TextField, TextArea, SegTab, SectionLabel, AddModuleSlot, SeedScene } from "components.slint";
+import { ScrollView } from "std-widgets.slint";
 
-
+// One Echo, flattened for display.
 export struct EchoItem {
     id: string,
+    kind: string,
     title: string,
-    markdown: string,
-    preview: string,
-    section-name: string,
-    day: string,
-    created-at: string,
+    body: string,
+    time: string,
+    completed: bool,
+    priority: string,
+    checklist-done: int,
+    checklist-total: int,
+    mood: int,
+    energy: int,
+    has-mood: bool,
+    has-energy: bool,
+    pinned: bool,
+    tags: [string],
 }
 
-export struct JourneyDay {
-    day_id: string,      // e.g., "2026-02-18" (for matching echoes)
-    display_name: string, // e.g., "FEB 18"
-    is_today: bool,
+// A single day on the timeline, holding that day's Echoes.
+export struct DaySignpost {
+    iso: string,
+    label: string,
+    rel: string,
+    is-today: bool,
+    echoes: [EchoItem],
+}
+
+// One editable checklist row in the composer.
+export struct ChecklistDraft {
+    text: string,
+    done: bool,
 }
 
 export component App inherits Window {
-    preferred-width: 400px;
-    preferred-height: 800px;
+    title: "Saga";
+    preferred-width: 560px;
+    preferred-height: 820px;
+    default-font-size: 15px;
+    default-font-family: "Segoe UI";
+    background: Theme.bg;
 
-    // States: 0 = Journey (Main), 1 = Echo screen (View/Edit)
-    property <int> screen-state: 0;
-    property <bool> edit-mode: false;
-    property <int> sun-view-mode: 0;
-    property <EchoItem> active-echo;
-    property <int> expanded-day: -1;
-    in-out property <[string]> sections: [];
-    in-out property <[EchoItem]> echoes: [];
-    in-out property <string> current-date-str;
-    in-out property <[JourneyDay]> journey-days: [];
+    // Data supplied by Rust.
+    in property <[DaySignpost]> days;
+    in property <string> today-iso;
+    in property <string> seed-text;
 
-    // Callbacks for Rust integration
-    callback save-echo(EchoItem);
-    callback add-section(string);
+    // Which screen is showing: "today" or "path".
+    property <string> current-view: "path";
 
-    background: screen-state == 0
-        ? @linear-gradient(180deg, #2e7d32 0%, #4caf50 50%, #81c784 100%)
-        : (edit-mode ? #fff3e0 : #fffaf0);
+    // Composer state. draft-id == "" means "creating a new Echo".
+    property <bool> composer-open: false;
+    property <string> draft-id: "";
+    property <string> draft-kind: "plain";
+    property <string> draft-day: "";
+    property <string> draft-title: "";
+    property <string> draft-body: "";
+    property <string> draft-priority: "medium";
+    property <bool> draft-completed: false;
 
-    // ==========================================
-    // SCREEN 0: THE PATH (MAIN SCREEN)
-    // ==========================================
-    if screen-state == 0 : Rectangle {
-        Flickable {
-            width: 100%; height: 100%;
-            viewport-height: 1800px;
+    in property <[ChecklistDraft]> draft-checklist;
+    property <string> draft-new-item: "";
 
-            // Meadow Texture
-            for i in 80 : Rectangle {
-                x: Math.mod(i * 197, 390) * 1px + 5px;
-                y: Math.mod(i * 283, 1750) * 1px + 300px;
-                width: 1.2px; height: 1.2px;
-                background: rgba(255, 255, 255, 0.15);
-                border-radius: 0.6px;
-            }
+    // Seed editor state.
+    property <bool> seed-editor-open: false;
+    property <string> seed-draft: "";
 
-            // THE WINDING ROAD
-            Path {
-                width: 400px; height: 1400px; y: 300px;
-                stroke: #8d7d6f; stroke-width: 80px;
-                commands: "M 200 0 Q 300 300 200 600 T 200 1400";
-                opacity: 0.8;
-            }
+    // Type-picker + delete-menu state.
+    property <bool> picker-open: false;
+    property <bool> confirm-open: false;
+    property <string> confirm-id: "";
 
-            // LANDMARKS
-            for day[i] in journey-days : Rectangle {
-                property <bool> is-expanded: expanded-day == i;
-                property <bool> is-left: Math.mod(i, 2) == 0;
+    // Long-press bookkeeping for the shared root Timer below.
+    property <string> hold-id: "";
+    property <bool> hold-fired: false;
 
-                x: is-left ? 60px : 270px;
-                y: i * 220px + 350px;
-                width: 70px; height: 70px;
+    callback create-plain(string, string);                  // (day, body)
+    callback update-plain(string, string);                  // (id, body)
+    callback create-task(string, string, string, string, bool);  // (day, title, desc, priority, completed)
+    callback update-task(string, string, string, string, bool);  // (id, title, desc, priority, completed)
+    callback toggle-complete(string);                       // (id)
+    callback delete-echo(string);                           // (id)
 
-                // Date Bubble
-                Rectangle {
-                    width: 70px; height: 70px;
-                    background: is-expanded ? #ffffff : (day.is_today ? #fff3e0 : #fdfcfbaa);
-                    border-radius: 35px;
-                    border-width: day.is_today ? 3px : 2px;
-                    border-color: #3e2723;
+    callback set-seed(string);                              // (text) upsert today's intention
 
-                    Text {
-                        text: day.display_name;
-                        color: #3e2723;
-                        font-size: 12px;
-                        font-weight: 800;
-                        horizontal-alignment: center;
-                    }
+    callback checklist-add(string);                         // (text)
+    callback checklist-remove(int);                         // (index)
+    callback checklist-toggle(int);                         // (index)
+    callback begin-task-edit(string);                       // "" = new task; id loads its items
 
-                    TouchArea { clicked => { expanded-day = (expanded-day == i) ? -1 : i; } }
-                }
+    function open-new-plain() {
+        root.draft-id = "";
+        root.draft-kind = "plain";
+        root.draft-day = root.today-iso;
+        root.draft-body = "";
+        root.composer-open = true;
+    }
+    function open-new-task() {
+        root.draft-id = "";
+        root.draft-kind = "task";
+        root.draft-day = root.today-iso;
+        root.draft-title = "";
+        root.draft-body = "";
+        root.draft-priority = "medium";
+        root.draft-completed = false;
+        root.draft-new-item = "";
+        root.begin-task-edit("");
+        root.composer-open = true;
+    }
+    function open-editor(item: EchoItem) {
+        root.draft-id = item.id;
+        root.draft-kind = item.kind;
+        root.draft-title = item.title;
+        root.draft-body = item.body;
+        root.draft-priority = item.priority == "" ? "medium" : item.priority;
+        root.draft-completed = item.completed;
+        root.draft-new-item = "";
+        root.begin-task-edit(item.kind == "task" ? item.id : "");
+        root.composer-open = true;
+    }
+    function ask-delete(id: string) {
+        root.confirm-id = id;
+        root.confirm-open = true;
+    }
+    function open-seed-editor() {
+        root.seed-draft = root.seed-text;
+        root.seed-editor-open = true;
+    }
 
-                // ADAPTIVE BUBBLES
-                if is-expanded : Rectangle {
-                    z: 10;
-
-                    // Show ONLY echoes that belong to THIS day_id
-                    for echo[j] in echoes : Rectangle {
-                        // Logic: Hide the bubble if it doesn't match the day
-                        visible: echo.day == day.day_id;
-                        width: self.visible ? 55px : 0px;
-                        height: self.visible ? 55px : 0px;
-
-                        property <angle> sprout-angle: (is-left ? 0deg : 180deg) + (j * 40deg) - 20deg;
-                        x: 35px + Math.sin(sprout-angle) * 85px - 25px;
-                        y: 35px + Math.cos(sprout-angle) * 85px - 25px;
-
-                        background: #fff9c4;
-                        border-radius: 27.5px;
-                        border-width: 1px;
-                        border-color: #fbc02d;
-
-                        VerticalLayout {
-                            padding: 6px;
-                            alignment: center;
-                            spacing: 2px;
-
-                            Text {
-                                text: echo.section-name;
-                                font-size: 7px;
-                                color: #8d7d6f;
-                                font-weight: 900;
-                                horizontal-alignment: center;
-                                overflow: elide;
-                                }
-                            Text {
-                                text: echo.title;
-                                font-size: 10px;
-                                font-weight: 700;
-                                color: #3e2723;
-                                horizontal-alignment: center;
-                                wrap: word-wrap;
-                                vertical-alignment:
-                                center;
-                                max-height: 24px;
-                                overflow: elide;
-                            }
-                        }
-
-                        TouchArea {
-                            clicked => {
-                                active-echo = echo;
-                                edit-mode = false;
-                                screen-state = 1;
-                            }
-                        }
-                    }
-
-                    Rectangle {
-                        property <angle> plus-angle: is-left ? -45deg : 225deg;
-                        x: 35px + Math.sin(plus-angle) * 85px - 25px;
-                        y: 35px + Math.cos(plus-angle) * 85px - 25px;
-                        width: 50px; height: 50px;
-                        background: #e8f5e9;
-                        border-radius: 25px;
-                        border-color: #66bb6a;
-                        border-width: 1.5px;
-
-                        Text { text: "+"; font-size: 20px; color: #2e7d32; font-weight: 800; horizontal-alignment: center; }
-
-                        TouchArea {
-                            clicked => {
-                                active-echo = {
-                                    id: "",
-                                    title: "",
-                                    markdown: "",
-                                    section-name: sections[0],
-                                    day: day.day_id
-                                };
-                                edit-mode = true;
-                                screen-state = 1;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // --- FIXED HORIZON ---
-        Rectangle {
-            y: 0; width: 100%; height: 280px;
-            background: @linear-gradient(180deg, #4facfe 0%, #00f2fe 60%, transparent 100%);
-            clip: true; z: 20;
-
-            Rectangle {
-                x: 320px; y: 40px; width: 60px; height: 60px;
-                background: @radial-gradient(circle, #ffd700 0%, #ff8c00 100%);
-                border-radius: 30px;
-                TouchArea { clicked => { sun-view-mode = Math.mod(sun-view-mode + 1, 3); } }
-                Text {
-                    text: (sun-view-mode == 0) ? "WEEK" : (sun-view-mode == 1) ? "MONTH" : "ALL";
-                    font-size: 10px; font-weight: 900; color: white;
-                    horizontal-alignment: center; vertical-alignment: center;
-                }
-            }
-
-            Path { width: 400px; height: 180px; y: 100px; fill: #77889966; commands: "M 0 180 L 100 40 L 220 120 L 320 20 L 400 180 Z"; }
-            Path { width: 400px; height: 180px; y: 120px; fill: #4b5d67; commands: "M 0 180 L 140 20 L 280 180 Z"; }
-        }
-
-        Text {
-            x: 0; y: 40px; width: 100%;
-            text: "S  A  G  A";
-            horizontal-alignment: center; font-size: 20px; font-weight: 900;
-            color: white; letter-spacing: 12px; opacity: 0.8; z: 25;
+    // Fires ~0.5s after a card press begins, unless the finger lifts
+    // first (which clears hold-id and stops the timer).
+    Timer {
+        interval: 500ms;
+        running: root.hold-id != "";
+        triggered => {
+            root.hold-fired = true;
+            root.ask-delete(root.hold-id);
+            root.hold-id = "";
         }
     }
 
-    // ==========================================
-    // SCREEN 1: ECHO SCREEN (VIEW / EDIT)
-    // ==========================================
-    if screen-state == 1 : Rectangle {
-        width: 100%; height: 100%;
-        background: edit-mode ? #966516 : #9b6f28;
-
-        VerticalLayout {
-            padding: 24px;
-            spacing: 16px;
-
-            // Header Row
-            HorizontalLayout {
-                VerticalLayout {
-                    spacing: 4px;
-                    Text {
-                        text: edit-mode ? "Editing Entry" : active-echo.section-name;
-                        font-size: 14px;
-                        color: #5d4037;
-                        font-weight: 900;
-                    }
-                    Text {
-                        text: active-echo.day;
-                        font-size: 16px;
-                        color: #3e2723;
-                        font-weight: 700;
-                    }
-                }
-                Rectangle { horizontal-stretch: 1; }
-
-                Button {
-                    text: "Back to Road";
-                    clicked => { screen-state = 0; edit-mode = false; }
-                }
-
-                if !edit-mode : Button { text: "Edit"; clicked => { edit-mode = true; } }
-
-                if edit-mode : Button {
-                    text: "Save";
-                    clicked => {
-                        save-echo({
-                            id: active-echo.id,
-                            title: title_in.text,
-                            markdown: body_in.text,
-                            section-name: sect_combo.current-value,
-                            day: active-echo.day
-                        });
-                        edit-mode = false;
-                    }
-                }
-                if edit-mode : Button { text: "Cancel"; clicked => { edit-mode = false; } }
-            }
-
-            Rectangle { height: 1px; background: #8d7d6f55; }
-
-            // Title Box
-            title_in := LineEdit {
-                text: active-echo.title;
-                placeholder-text: "Title of your Echo...";
-                font-size: 24px;
-                enabled: edit-mode;
-            }
-
-            // Section Selection
-            HorizontalLayout {
-                spacing: 10px;
-                Text { text: "Section:"; vertical-alignment: center; color: #3e2723; font-weight: 700; }
-                sect_combo := ComboBox {
-                    model: sections;
-                    current-value: active-echo.section-name;
-                    enabled: edit-mode;
-                    horizontal-stretch: 1;
-                }
-                if edit-mode : Button { text: "New"; clicked => { add_pnl.visible = !add_pnl.visible; } }
-            }
-
-            // Quick Section Add Panel
-            add_pnl := Rectangle {
-                visible: false; height: 40px; background: #e0e0e0; border-radius: 8px;
+    // ---- header + scrolling timeline ----
+    VerticalLayout {
+        // view switch: Today vs Path (full-width segmented pill, top of screen)
+        HorizontalLayout {
+            padding-left: 22px;
+            padding-right: 22px;
+            padding-top: 16px;
+            padding-bottom: 12px;
+            Rectangle {
+                height: 46px;
+                border-radius: 14px;
+                background: Theme.surface-2;
+                border-width: 1px;
+                border-color: Theme.line;
                 HorizontalLayout {
-                    padding: 4px; spacing: 8px;
-                    new_sect_in := LineEdit {
-                        placeholder-text: "New Section Name...";
+                    padding: 5px;
+                    spacing: 5px;
+                    SegTab {
+                        horizontal-stretch: 1;
+                        label: "Today";
+                        active: root.current-view == "today";
+                        clicked => { root.current-view = "today"; }
                     }
-                    Button { text: "Add"; clicked => { add-section(new_sect_in.text); add_pnl.visible = false; } }
+                    SegTab {
+                        horizontal-stretch: 1;
+                        label: "Path";
+                        active: root.current-view == "path";
+                        clicked => { root.current-view = "path"; }
+                    }
                 }
             }
+        }
 
-            // --- THE ECHO BODY (TEXT EDITOR) ---
-            body_in := TextEdit {
-                text: active-echo.markdown;
-                enabled: edit-mode;
-                font-size: 18px;
-                wrap: word-wrap;
-                vertical-stretch: 1; // Expands to fill the space
+        // Today screen — scrollable stack of module cards.
+        if root.current-view == "today" : ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout {
+                alignment: start;
+                padding: 22px;
+                padding-top: 6px;
+                spacing: 16px;
+
+                // greeting + date — TODO: wire to the clock
+                HorizontalLayout {
+                    alignment: space-between;
+                    Text {
+                        text: "Good morning";
+                        color: Theme.clay;
+                        font-size: 22px;
+                        font-weight: 600;
+                        vertical-alignment: bottom;
+                    }
+                    Text {
+                        text: "Thursday, June 11";
+                        color: Theme.ink;
+                        font-family: Theme.serif;
+                        font-size: 17px;
+                        font-weight: 600;
+                        vertical-alignment: bottom;
+                    }
+                }
+
+                SeedScene {
+                    text: root.seed-text == "" ? "Plant today's intention" : root.seed-text;
+                    clicked => { root.open-seed-editor(); }
+                }
+
+                // TODO: Tasks / Today's Echoes modules go here
+
+                AddModuleSlot { }
+
+                // FAB clearance
+                Rectangle { height: 96px; }
+            }
+        }
+
+        if root.current-view == "path" : ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout {
+                alignment: start;
+                padding: 22px;
+                padding-top: 4px;
+                spacing: 4px;
+
+                for day in root.days : VerticalLayout {
+                    alignment: start;
+                    spacing: 10px;
+                    padding-top: 14px;
+
+                    // day signpost
+                    HorizontalLayout {
+                        alignment: start;
+                        spacing: 10px;
+                        Text {
+                            text: day.label;
+                            color: Theme.ink;
+                            font-size: 16px;
+                            font-weight: 800;
+                        }
+                        Text {
+                            text: day.rel;
+                            color: Theme.accent;
+                            font-size: 12px;
+                            font-weight: 700;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    // cards for this day
+                    for echo in day.echoes : Card {
+                        clicked => {
+                            if (!root.hold-fired) {
+                                root.open-editor(echo);
+                            }
+                        }
+                        delete-requested => { root.ask-delete(echo.id); }
+                        hold-started => {
+                            root.hold-fired = false;
+                            root.hold-id = echo.id;
+                        }
+                        hold-ended => { root.hold-id = ""; }
+
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 9px;
+
+                            // task header: completion box + title
+                            if echo.kind == "task" : HorizontalLayout {
+                                alignment: start;
+                                spacing: 10px;
+                                CheckBox {
+                                    checked: echo.completed;
+                                    toggled => { root.toggle-complete(echo.id); }
+                                }
+                                Text {
+                                    text: echo.title;
+                                    color: echo.completed ? Theme.ink-faint : Theme.ink;
+                                    font-size: 15px;
+                                    font-weight: 700;
+                                    vertical-alignment: center;
+                                    wrap: word-wrap;
+                                }
+                            }
+
+                            // body: plain markdown, or task description
+                            if echo.body != "" : Text {
+                                text: echo.body;
+                                color: echo.kind == "task" ? Theme.ink-soft : Theme.ink;
+                                font-size: echo.kind == "task" ? 14px : 15px;
+                                wrap: word-wrap;
+                            }
+
+                            // timestamp + metadata pills
+                            HorizontalLayout {
+                                spacing: 7px;
+                                alignment: start;
+                                Text {
+                                    text: echo.time;
+                                    color: Theme.ink-faint;
+                                    font-size: 12px;
+                                    vertical-alignment: center;
+                                }
+                                if echo.kind == "task" && echo.priority != "" : Rectangle {
+                                    height: 22px;
+                                    border-radius: 6px;
+                                    background: echo.priority == "critical" ? #f7d6d2
+                                        : echo.priority == "high" ? #fbe3cf
+                                        : echo.priority == "medium" ? #fdf2d6
+                                        : #eef3ec;
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        Text {
+                                            text: echo.priority;
+                                            font-size: 11px;
+                                            font-weight: 700;
+                                            vertical-alignment: center;
+                                            color: echo.priority == "critical" ? #c0392b
+                                                : echo.priority == "high" ? #c2671d
+                                                : echo.priority == "medium" ? #b58a18
+                                                : #6f8a5f;
+                                        }
+                                    }
+                                }
+                                if echo.checklist-total > 0 : Chip {
+                                    text: "\{echo.checklist-done}/\{echo.checklist-total}";
+                                }
+                                if echo.has-mood : Chip { text: "mood \{echo.mood}"; }
+                                if echo.has-energy : Chip { text: "energy \{echo.energy}"; }
+                                if echo.pinned : Chip { text: "pinned"; }
+                                for t in echo.tags : Chip { text: "#\{t}"; }
+                            }
+                        }
+                    }
+                }
+
+                // clearance so the FAB never covers the last card
+                Rectangle { height: 96px; }
+            }
+        }
+    }
+
+    // ---- floating "+" button ----
+    Rectangle {
+        property <length> size: 58px;
+        width: self.size;
+        height: self.size;
+        x: root.width - self.width - 22px;
+        y: root.height - self.height - 22px;
+        background: fab.pressed ? Theme.clay : Theme.accent;
+        border-radius: 19px;
+        drop-shadow-color: #b5651d80;
+        drop-shadow-blur: fab.has-hover ? 34px : 20px;
+        drop-shadow-offset-y: 9px;
+        animate background, drop-shadow-blur {
+            duration: Theme.quick;
+            easing: Theme.doey;
+        }
+
+        // "+" icon: two centered bars
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 22px;
+            height: 3px;
+            border-radius: 1.5px;
+            background: Theme.on-accent;
+        }
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 3px;
+            height: 22px;
+            border-radius: 1.5px;
+            background: Theme.on-accent;
+        }
+
+        fab := TouchArea {
+            clicked => { root.picker-open = true; }
+        }
+    }
+
+    // ---- type picker (choose Echo vs Task Echo) ----
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        visible: picker-open;
+
+        Rectangle {
+            background: #3e2723;
+            opacity: picker-open ? 0.34 : 0.0;
+            animate opacity { duration: Theme.base; }
+            TouchArea {
+                clicked => { root.picker-open = false; }
+            }
+        }
+
+        Rectangle {
+            width: Math.min(420px, parent.width - 40px);
+            height: 130px;
+            x: (parent.width - self.width) / 2;
+            y: picker-open ? (parent.height - self.height) / 2 : parent.height;
+            opacity: picker-open ? 1.0 : 0.0;
+            background: Theme.surface;
+            border-radius: 18px;
+            border-width: 1px;
+            border-color: Theme.line;
+            drop-shadow-color: #3e272366;
+            drop-shadow-blur: 50px;
+            drop-shadow-offset-y: 18px;
+            animate y, opacity {
+                duration: Theme.base;
+                easing: Theme.doey;
             }
 
-            // Footer Timestamp (Visible only in View mode)
-            if !edit-mode : Text {
-                text: "Echoed on " + active-echo.day;
-                font-size: 12px;
-                color: #8d7d6f;
+            HorizontalLayout {
+                padding: 16px;
+                spacing: 12px;
+
+                pick-plain := Rectangle {
+                    border-radius: 14px;
+                    border-width: 1px;
+                    border-color: pp.has-hover ? Theme.accent : Theme.line;
+                    background: pp.has-hover ? Theme.surface-2 : Theme.bg;
+                    animate border-color, background { duration: Theme.quick; }
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 4px;
+                        Text {
+                            text: "Echo";
+                            font-size: 16px;
+                            font-weight: 800;
+                            color: Theme.ink;
+                            horizontal-alignment: center;
+                        }
+                        Text {
+                            text: "a freeform note";
+                            font-size: 12px;
+                            color: Theme.ink-faint;
+                            horizontal-alignment: center;
+                        }
+                    }
+                    pp := TouchArea {
+                        clicked => {
+                            root.picker-open = false;
+                            root.open-new-plain();
+                        }
+                    }
+                }
+
+                pick-task := Rectangle {
+                    border-radius: 14px;
+                    border-width: 1px;
+                    border-color: pt.has-hover ? Theme.accent : Theme.line;
+                    background: pt.has-hover ? Theme.surface-2 : Theme.bg;
+                    animate border-color, background { duration: Theme.quick; }
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 4px;
+                        Text {
+                            text: "Task Echo";
+                            font-size: 16px;
+                            font-weight: 800;
+                            color: Theme.ink;
+                            horizontal-alignment: center;
+                        }
+                        Text {
+                            text: "something to do";
+                            font-size: 12px;
+                            color: Theme.ink-faint;
+                            horizontal-alignment: center;
+                        }
+                    }
+                    pt := TouchArea {
+                        clicked => {
+                            root.picker-open = false;
+                            root.open-new-task();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- composer overlay (create / edit) ----
+    // Kept in the tree and gated by `visible` so the text inputs
+    // compile cleanly (see the Slint 1.9.1 note in components).
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        visible: composer-open;
+
+        Rectangle {
+            background: #3e2723;
+            opacity: composer-open ? 0.34 : 0.0;
+            animate opacity { duration: Theme.base; }
+            TouchArea {
+                clicked => { root.composer-open = false; }
+            }
+        }
+
+        // panel slides up from the bottom and fades in
+        Rectangle {
+            width: Math.min(520px, parent.width - 32px);
+            height: Math.min(580px, parent.height - 80px);
+            x: (parent.width - self.width) / 2;
+            y: composer-open ? (parent.height - self.height) / 2 : parent.height;
+            opacity: composer-open ? 1.0 : 0.0;
+            background: Theme.surface;
+            border-radius: 20px;
+            border-width: 1px;
+            border-color: Theme.line;
+            drop-shadow-color: #3e272366;
+            drop-shadow-blur: 60px;
+            drop-shadow-offset-y: 22px;
+            animate y, opacity {
+                duration: Theme.base;
+                easing: Theme.doey;
+            }
+
+            VerticalLayout {
+                padding: 20px;
+                spacing: 12px;
+
+                // header (pinned)
+                HorizontalLayout {
+                    Text {
+                        text: (root.draft-id == "" ? "New " : "Edit ") + (root.draft-kind == "task" ? "Task Echo" : "Echo");
+                        color: Theme.ink;
+                        font-size: 18px;
+                        font-weight: 800;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    GhostButton {
+                        text: "✕";
+                        width: 42px;
+                        clicked => { root.composer-open = false; }
+                    }
+                }
+
+                // scrolling form (header + buttons stay pinned)
+                form := ScrollView {
+                    vertical-stretch: 1;
+                    VerticalLayout {
+                        width: form.visible-width;
+                        spacing: 12px;
+
+                        // title (tasks only)
+                        if root.draft-kind == "task" : TextField {
+                            text <=> root.draft-title;
+                            placeholder: "What needs doing?";
+                        }
+
+                        // body: plain markdown, or task description
+                        TextArea {
+                            text <=> root.draft-body;
+                            placeholder: root.draft-kind == "task" ? "Add a description…" : "Write your echo…";
+                            height: root.draft-kind == "task" ? 100px : 240px;
+                        }
+
+                        // checklist (tasks only)
+                        if root.draft-kind == "task" : VerticalLayout {
+                            spacing: 8px;
+                            Text {
+                                text: "Checklist";
+                                color: Theme.ink-soft;
+                                font-size: 12px;
+                                font-weight: 700;
+                            }
+
+                            for item[idx] in root.draft-checklist : HorizontalLayout {
+                                spacing: 10px;
+                                CheckBox {
+                                    checked: item.done;
+                                    toggled => { root.checklist-toggle(idx); }
+                                }
+                                Text {
+                                    text: item.text;
+                                    color: item.done ? Theme.ink-faint : Theme.ink;
+                                    font-size: 14px;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                    wrap: word-wrap;
+                                }
+                                // remove item
+                                Rectangle {
+                                    width: 26px;
+                                    height: 26px;
+                                    border-radius: 8px;
+                                    background: rm.has-hover ? #c0392b14 : transparent;
+                                    animate background { duration: Theme.quick; }
+                                    Text {
+                                        text: "✕";
+                                        color: Theme.ink-faint;
+                                        font-size: 13px;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                    rm := TouchArea {
+                                        clicked => { root.checklist-remove(idx); }
+                                    }
+                                }
+                            }
+
+                            // add-item row (Enter to add)
+                            HorizontalLayout {
+                                spacing: 10px;
+                                Rectangle {
+                                    width: 24px;
+                                    height: 24px;
+                                    border-radius: 7px;
+                                    border-width: 2px;
+                                    border-color: Theme.ink-faint;
+                                }
+                                TextField {
+                                    flat: true;
+                                    text <=> root.draft-new-item;
+                                    placeholder: "add item…";
+                                    horizontal-stretch: 1;
+                                    accepted => {
+                                        if (root.draft-new-item != "") {
+                                            root.checklist-add(root.draft-new-item);
+                                            root.draft-new-item = "";
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // priority (tasks only)
+                        if root.draft-kind == "task" : VerticalLayout {
+                            spacing: 6px;
+                            Text {
+                                text: "Priority";
+                                color: Theme.ink-soft;
+                                font-size: 12px;
+                                font-weight: 700;
+                            }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                for p in ["low", "medium", "high", "critical"] : Rectangle {
+                                    height: 34px;
+                                    border-radius: 10px;
+                                    border-width: 1px;
+                                    border-color: root.draft-priority == p ? Theme.accent : Theme.line;
+                                    background: root.draft-priority == p ? Theme.accent : Theme.bg;
+                                    animate background, border-color { duration: Theme.quick; }
+                                    Text {
+                                        width: 100%;
+                                        height: 100%;
+                                        text: p;
+                                        font-size: 13px;
+                                        font-weight: 700;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                        color: root.draft-priority == p ? Theme.on-accent : Theme.ink-soft;
+                                    }
+                                    TouchArea {
+                                        clicked => { root.draft-priority = p; }
+                                    }
+                                }
+                            }
+                        }
+
+                        // completion (tasks only) — manual, independent of the checklist
+                        if root.draft-kind == "task" : HorizontalLayout {
+                            spacing: 10px;
+                            CheckBox {
+                                checked: root.draft-completed;
+                                toggled => { root.draft-completed = !root.draft-completed; }
+                            }
+                            Text {
+                                text: "Completed";
+                                color: Theme.ink-soft;
+                                font-size: 14px;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+
+                // actions (pinned)
+                HorizontalLayout {
+                    spacing: 10px;
+                    if root.draft-id != "" : GhostButton {
+                        text: "Delete";
+                        width: 110px;
+                        clicked => {
+                            root.delete-echo(root.draft-id);
+                            root.composer-open = false;
+                        }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    PrimaryButton {
+                        text: "Save Echo";
+                        width: 150px;
+                        clicked => {
+                            if (root.draft-id == "") {
+                                if (root.draft-kind == "task") {
+                                    root.create-task(root.draft-day, root.draft-title, root.draft-body, root.draft-priority, root.draft-completed);
+                                } else {
+                                    root.create-plain(root.draft-day, root.draft-body);
+                                }
+                            } else {
+                                if (root.draft-kind == "task") {
+                                    root.update-task(root.draft-id, root.draft-title, root.draft-body, root.draft-priority, root.draft-completed);
+                                } else {
+                                    root.update-plain(root.draft-id, root.draft-body);
+                                }
+                            }
+                            root.composer-open = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- seed editor overlay (edit today's intention) ----
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        visible: seed-editor-open;
+
+        Rectangle {
+            background: #3e2723;
+            opacity: seed-editor-open ? 0.34 : 0.0;
+            animate opacity { duration: Theme.base; }
+            TouchArea {
+                clicked => { root.seed-editor-open = false; }
+            }
+        }
+
+        Rectangle {
+            width: Math.min(480px, parent.width - 32px);
+            height: 280px;
+            x: (parent.width - self.width) / 2;
+            y: seed-editor-open ? (parent.height - self.height) / 2 : parent.height;
+            opacity: seed-editor-open ? 1.0 : 0.0;
+            background: Theme.surface;
+            border-radius: 20px;
+            border-width: 1px;
+            border-color: Theme.line;
+            drop-shadow-color: #3e272366;
+            drop-shadow-blur: 60px;
+            drop-shadow-offset-y: 22px;
+            animate y, opacity {
+                duration: Theme.base;
+                easing: Theme.doey;
+            }
+
+            VerticalLayout {
+                padding: 20px;
+                spacing: 12px;
+                Text {
+                    text: "Today's intention";
+                    color: Theme.ink;
+                    font-size: 18px;
+                    font-weight: 800;
+                }
+                TextArea {
+                    text <=> root.seed-draft;
+                    placeholder: "What do you want to tend today?";
+                    vertical-stretch: 1;
+                }
+                HorizontalLayout {
+                    spacing: 10px;
+                    Rectangle { horizontal-stretch: 1; }
+                    GhostButton {
+                        text: "Cancel";
+                        width: 110px;
+                        clicked => { root.seed-editor-open = false; }
+                    }
+                    PrimaryButton {
+                        text: "Save";
+                        width: 130px;
+                        clicked => {
+                            root.set-seed(root.seed-draft);
+                            root.seed-editor-open = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- delete menu (long-press / right-click) ----
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        visible: confirm-open;
+
+        Rectangle {
+            background: #3e2723;
+            opacity: confirm-open ? 0.34 : 0.0;
+            animate opacity { duration: Theme.base; }
+            TouchArea {
+                clicked => { root.confirm-open = false; }
+            }
+        }
+
+        Rectangle {
+            width: 170px;
+            height: 50px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            background: Theme.surface;
+            border-radius: 14px;
+            border-width: 1px;
+            border-color: Theme.line;
+            drop-shadow-color: #3e272366;
+            drop-shadow-blur: 40px;
+            drop-shadow-offset-y: 14px;
+            opacity: confirm-open ? 1.0 : 0.0;
+            animate opacity { duration: Theme.quick; }
+
+            Rectangle {
+                background: del-area.has-hover ? #c0392b14 : transparent;
+                border-radius: 14px;
+                animate background { duration: Theme.quick; }
+            }
+            Text {
+                text: "Delete";
+                color: #c0392b;
+                font-size: 15px;
+                font-weight: 700;
                 horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            del-area := TouchArea {
+                clicked => {
+                    root.delete-echo(root.confirm-id);
+                    root.confirm-open = false;
+                }
             }
         }
     }

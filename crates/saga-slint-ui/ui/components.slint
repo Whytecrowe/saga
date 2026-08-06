@@ -1,0 +1,415 @@
+// Reusable UI building blocks: inputs come in via `in property`,
+// events go out via `callback`. Hover/press motion is built in.
+
+import { Theme } from "theme.slint";
+
+// Tappable Echo card. The parent supplies the inner content via
+// @children and handles three gestures:
+//   clicked          - a normal tap
+//   delete-requested - a right-click
+//   hold-started / hold-ended - pointer down/up, so a long-press
+//     can be timed by a single Timer at the app root. (A Timer
+//     inside a repeated element trips the Slint 1.9.1 text-input
+//     compiler pass, so the timing must live higher up.)
+export component Card inherits Rectangle {
+    callback clicked();
+    callback delete-requested();
+    callback hold-started();
+    callback hold-ended();
+
+    background: Theme.surface;
+    border-radius: Theme.radius;
+    border-width: 1px;
+    border-color: ta.has-hover ? Theme.accent : Theme.line;
+    // clip children to the rounded shape so the accent rail's corners
+    // follow the card's curve instead of poking past it
+    clip: true;
+    drop-shadow-color: #78521e22;
+    drop-shadow-blur: ta.has-hover ? 30px : 16px;
+    drop-shadow-offset-y: ta.has-hover ? 12px : 6px;
+    animate border-color, drop-shadow-blur, drop-shadow-offset-y {
+        duration: Theme.base;
+        easing: Theme.doey;
+    }
+
+    // accent rail down the left edge, revealed on hover
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: 3px;
+        height: ta.has-hover ? parent.height : 0px;
+        background: Theme.accent;
+        animate height {
+            duration: Theme.base;
+            easing: Theme.doey;
+        }
+    }
+
+    ta := TouchArea {
+        pointer-event(ev) => {
+            if (ev.kind == PointerEventKind.down && ev.button == PointerEventButton.right) {
+                root.delete-requested();
+            } else if (ev.kind == PointerEventKind.down) {
+                root.hold-started();
+            }
+            if (ev.kind == PointerEventKind.up || ev.kind == PointerEventKind.cancel) {
+                root.hold-ended();
+            }
+        }
+        clicked => { root.clicked(); }
+    }
+
+    @children
+}
+
+// Solid call-to-action button.
+export component PrimaryButton inherits Rectangle {
+    in property <string> text;
+    callback clicked();
+
+    height: 46px;
+    background: ta.pressed ? Theme.clay : Theme.accent;
+    border-radius: 14px;
+    drop-shadow-color: #b5651d66;
+    drop-shadow-blur: ta.has-hover ? 28px : 16px;
+    drop-shadow-offset-y: ta.has-hover ? 10px : 6px;
+    animate background, drop-shadow-blur, drop-shadow-offset-y {
+        duration: Theme.quick;
+        easing: Theme.doey;
+    }
+
+    Text {
+        width: 100%;
+        height: 100%;
+        text: root.text;
+        color: Theme.on-accent;
+        font-size: 15px;
+        font-weight: 800;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// Quiet outlined button.
+export component GhostButton inherits Rectangle {
+    in property <string> text;
+    callback clicked();
+
+    height: 46px;
+    background: ta.has-hover ? Theme.surface-2 : transparent;
+    border-radius: 14px;
+    border-width: 1px;
+    border-color: Theme.line;
+    animate background { duration: Theme.quick; }
+
+    Text {
+        width: 100%;
+        height: 100%;
+        text: root.text;
+        color: Theme.ink-soft;
+        font-size: 14px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// One tab of a segmented control. Active = filled accent; inactive
+// = quiet. The owner tracks which is active and flips it on click.
+export component SegTab inherits Rectangle {
+    in property <string> label;
+    in property <bool> active;
+    callback clicked();
+
+    height: 36px;
+    border-radius: 10px;
+    background: root.active ? Theme.accent : transparent;
+    animate background {
+        duration: Theme.base;
+        easing: Theme.doey;
+    }
+
+    // label fills the tab so it centers when the tab is stretched
+    // to fill its share of a full-width segmented control
+    Text {
+        width: 100%;
+        height: 100%;
+        text: root.label;
+        color: root.active ? Theme.on-accent : Theme.ink-soft;
+        font-size: 14px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        animate color {
+            duration: Theme.base;
+            easing: Theme.doey;
+        }
+    }
+
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// Rounded metadata pill; sizes to its text.
+export component Chip inherits Rectangle {
+    in property <string> text;
+
+    height: 24px;
+    background: Theme.surface-2;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.line;
+
+    HorizontalLayout {
+        padding-left: 9px;
+        padding-right: 9px;
+        Text {
+            text: root.text;
+            color: Theme.clay;
+            font-size: 12px;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// Single-line themed text field with a faint placeholder.
+// Built on the primitive TextInput so every color is ours (the
+// std-widgets LineEdit ignores Theme and looks blank when unfocused).
+export component TextField inherits Rectangle {
+    in property <string> placeholder;
+    in-out property <string> text <=> ti.text;
+    // borderless inline variant
+    in property <bool> flat;
+    callback accepted();   // Enter / mobile return key
+
+    height: root.flat ? 36px : 44px;
+    background: root.flat ? transparent : Theme.bg;
+    border-radius: Theme.radius-sm;
+    border-width: root.flat ? 0px : 1px;
+    border-color: ti.has-focus ? Theme.accent : Theme.line;
+    animate border-color { duration: Theme.quick; }
+
+    // placeholder sits behind the (transparent) input; hidden once typed
+    Text {
+        x: root.flat ? 0px : 12px;
+        height: 100%;
+        text: root.placeholder;
+        visible: ti.text == "";
+        color: Theme.ink-faint;
+        font-size: 15px;
+        vertical-alignment: center;
+    }
+
+    HorizontalLayout {
+        padding-left: root.flat ? 0px : 12px;
+        padding-right: root.flat ? 0px : 12px;
+        ti := TextInput {
+            vertical-alignment: center;
+            color: Theme.ink;
+            font-size: 15px;
+            single-line: true;
+            wrap: no-wrap;
+            selection-background-color: Theme.accent-2;
+            accepted => { root.accepted(); }
+        }
+    }
+}
+
+// Multi-line themed text area; scrolls when the content overflows.
+// Same reasoning as TextField — TextEdit can't be themed.
+export component TextArea inherits Rectangle {
+    in property <string> placeholder;
+    in-out property <string> text <=> ti.text;
+
+    background: Theme.bg;
+    border-radius: Theme.radius-sm;
+    border-width: 1px;
+    border-color: ti.has-focus ? Theme.accent : Theme.line;
+    clip: true;
+    animate border-color { duration: Theme.quick; }
+
+    Text {
+        x: 12px;
+        y: 12px;
+        width: parent.width - 24px;
+        text: root.placeholder;
+        visible: ti.text == "";
+        color: Theme.ink-faint;
+        font-size: 15px;
+        wrap: word-wrap;
+    }
+
+    Flickable {
+        x: 12px;
+        y: 12px;
+        width: parent.width - 24px;
+        height: parent.height - 24px;
+        ti := TextInput {
+            width: parent.width;
+            color: Theme.ink;
+            font-size: 15px;
+            single-line: false;
+            wrap: word-wrap;
+            selection-background-color: Theme.accent-2;
+        }
+    }
+}
+
+// Uppercase clay header above a module's content.
+export component SectionLabel inherits Text {
+    color: Theme.clay;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 1px;
+}
+
+// Add-a-module slot. Non-functional for now.
+// TODO: open a module picker once runtime customization lands.
+// (Outline is solid — Slint has no dashed border.)
+export component AddModuleSlot inherits Rectangle {
+    callback clicked();
+
+    height: 96px;
+    border-radius: Theme.radius;
+    border-width: 2px;
+    border-color: Theme.line;
+    background: ta.has-hover ? Theme.surface-2 : transparent;
+    animate background { duration: Theme.quick; }
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 2px;
+        Text {
+            text: "+";
+            color: Theme.ink-faint;
+            font-size: 24px;
+            font-weight: 700;
+            horizontal-alignment: center;
+        }
+        Text {
+            text: "add a module";
+            color: Theme.ink-faint;
+            font-size: 13px;
+            horizontal-alignment: center;
+        }
+    }
+
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// Today's Seed hero: dawn-lit banner with the day's intention.
+// TODO(3b): ground band + sprout + grass illustration along the bottom.
+// TODO: reflection gradient ("tended ··· present") once reflections land.
+export component SeedScene inherits Rectangle {
+    in property <string> text;
+    callback clicked();
+
+    height: 200px;
+    border-radius: Theme.radius;
+    clip: true;
+    border-width: 1px;
+    border-color: Theme.line;
+    background: @linear-gradient(160deg, #ffe6c4 0%, #fff3e0 55%, #fffaf0 100%);
+
+    // sun: faint halo + brighter disc, top-right
+    Rectangle {
+        x: parent.width - 96px;
+        y: 18px;
+        width: 96px;
+        height: 96px;
+        border-radius: 48px;
+        background: #f6d58c40;
+    }
+    Rectangle {
+        x: parent.width - 78px;
+        y: 36px;
+        width: 60px;
+        height: 60px;
+        border-radius: 30px;
+        background: Theme.accent-2;
+    }
+
+    VerticalLayout {
+        padding: 20px;
+        spacing: 12px;
+        alignment: start;
+
+        // label row: seed mark + heading
+        HorizontalLayout {
+            alignment: start;
+            spacing: 8px;
+            // TODO(3b): replace dot with a drawn leaf
+            Rectangle {
+                y: 2px;
+                width: 13px;
+                height: 13px;
+                border-radius: 6.5px;
+                background: Theme.clay;
+            }
+            SectionLabel { text: "TODAY'S SEED"; }
+        }
+
+        // the intention, in serif — a spacer keeps it clear of the sun
+        HorizontalLayout {
+            Text {
+                text: root.text;
+                color: Theme.ink;
+                font-family: Theme.serif;
+                font-size: 25px;
+                font-weight: 500;
+                wrap: word-wrap;
+                horizontal-stretch: 1;
+            }
+            Rectangle { width: 70px; }
+        }
+    }
+
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// Square checkbox. Reports `toggled`; the owner flips the bound state.
+export component CheckBox inherits Rectangle {
+    in property <bool> checked;
+    callback toggled();
+
+    width: 24px;
+    height: 24px;
+    border-radius: 7px;
+    border-width: 2px;
+    border-color: root.checked ? Theme.accent : Theme.ink-faint;
+    background: root.checked ? Theme.accent : transparent;
+    animate background, border-color {
+        duration: Theme.quick;
+        easing: Theme.doey;
+    }
+
+    Text {
+        visible: root.checked;
+        width: 100%;
+        height: 100%;
+        text: "✓";
+        color: Theme.on-accent;
+        font-size: 14px;
+        font-weight: 800;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    TouchArea {
+        clicked => { root.toggled(); }
+    }
+}

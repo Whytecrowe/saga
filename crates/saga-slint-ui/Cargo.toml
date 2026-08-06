@@ -30,7 +30,7 @@ slint = { workspace = true, features = ["backend-android-activity-06", "renderer
 jni = "0.21"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-slint = { workspace = true, features = ["backend-winit", "renderer-femtovg", "compat-1-2"] }
+slint = { workspace = true, features = ["backend-winit", "renderer-skia", "compat-1-2"] }
 
 
 [build-dependencies]
