@@ -1,11 +1,14 @@
 slint::include_modules!();
 
-use chrono::{Local, NaiveDate, Timelike};
+mod calendar;
+
+use chrono::{Datelike, Local, NaiveDate, Timelike};
 use saga_core::model::{
     ECHO_TYPE_PLAIN, ECHO_TYPE_TASK, Echo, EchoContent, PlainData, Priority, Seed, SeedKind, TaskData,
 };
 use saga_storage_sqlite::{Storage, open_default};
 use slint::{Model, ModelRc, SharedString, VecModel};
+use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 use uuid::Uuid;
@@ -20,6 +23,9 @@ pub fn run() {
     ui.set_today_iso(today.to_string().into());
     ui.set_greeting(greeting_for(now.hour()).into());
     ui.set_today_label(now.format("%A, %B %-d").to_string().into());
+    if let Some(tomorrow) = today.succ_opt() {
+        ui.set_tomorrow_iso(tomorrow.to_string().into());
+    }
 
     let storage = Rc::new(storage);
 
@@ -56,6 +62,45 @@ pub fn run() {
             }
         });
     }
+
+    // ---- date picker ----
+    // (year, month) currently on show; shared by the two callbacks below.
+    let picker_month = Rc::new(Cell::new((today.year(), today.month())));
+
+    // open on the month of the given date, or the current month
+    {
+        let ui_weak = ui.as_weak();
+        let picker_month = picker_month.clone();
+
+        ui.on_picker_show(move |iso| {
+            let anchor = parse_iso_day(&iso).unwrap_or_else(|| Local::now().date_naive());
+            picker_month.set((anchor.year(), anchor.month()));
+            if let Some(ui) = ui_weak.upgrade() {
+                show_month(&ui, picker_month.get());
+            }
+        });
+    }
+
+    // step to the previous / next month
+    {
+        let ui_weak = ui.as_weak();
+        let picker_month = picker_month.clone();
+
+        ui.on_picker_shift(move |delta| {
+            let (year, month) = picker_month.get();
+            picker_month.set(calendar::shift_month(year, month, delta));
+            if let Some(ui) = ui_weak.upgrade() {
+                show_month(&ui, picker_month.get());
+            }
+        });
+    }
+
+    ui.on_format_day(|iso| {
+        parse_iso_day(&iso)
+            .map(format_day)
+            .unwrap_or_default()
+            .into()
+    });
 
     // ---- checklist: add an item ----
     {
@@ -167,11 +212,12 @@ pub fn run() {
         let storage = storage.clone();
         let checklist_model = checklist_model.clone();
 
-        ui.on_create_task(move |day_iso, title, description, priority, completed| {
+        ui.on_create_task(move |day_iso, title, description, priority, completed, due| {
             let mut echo = Echo::new_task(parse_day(&day_iso), title.to_string());
             if let Some(task) = echo.as_task_mut() {
                 task.description = non_empty(&description);
                 task.priority = parse_priority(&priority);
+                apply_due(task, &due);
                 apply_checklist(task, &checklist_model, completed);
             }
             storage.save_echo(&echo).expect("Failed to save task");
@@ -185,12 +231,13 @@ pub fn run() {
         let storage = storage.clone();
         let checklist_model = checklist_model.clone();
 
-        ui.on_update_task(move |id, title, description, priority, completed| {
+        ui.on_update_task(move |id, title, description, priority, completed, due| {
             if let Some(mut echo) = load_echo(&storage, &id) {
                 echo.title = title.to_string();
                 if let Some(task) = echo.as_task_mut() {
                     task.description = non_empty(&description);
                     task.priority = parse_priority(&priority);
+                    apply_due(task, &due);
                     apply_checklist(task, &checklist_model, completed);
                 }
                 echo.updated_at = Local::now();
@@ -275,6 +322,55 @@ fn load_echo(storage: &Storage, id: &SharedString) -> Option<Echo> {
 
 fn parse_day(iso: &str) -> NaiveDate {
     NaiveDate::parse_from_str(iso, "%Y-%m-%d").unwrap_or_else(|_| Local::now().date_naive())
+}
+
+fn parse_iso_day(iso: &str) -> Option<NaiveDate> {
+    NaiveDate::parse_from_str(iso, "%Y-%m-%d").ok()
+}
+
+// "Thu, Nov 12"; the year is added only when it isn't the current one.
+fn format_day(date: NaiveDate) -> String {
+    let pattern = if date.year() == Local::now().year() {
+        "%a, %b %-d"
+    } else {
+        "%a, %b %-d, %Y"
+    };
+    date.format(pattern).to_string()
+}
+
+// Sets or clears the due date. An existing due time is kept while a
+// date remains, and dropped with it.
+fn apply_due(task: &mut TaskData, due_iso: &str) {
+    match parse_iso_day(due_iso) {
+        Some(date) => {
+            let time = task.due_time;
+            task.set_due(Some(date), time);
+        }
+        None => task.clear_due(),
+    }
+}
+
+// Fills the date picker with the given month.
+fn show_month(ui: &App, (year, month): (i32, u32)) {
+    let today = Local::now().date_naive();
+
+    let cells: Vec<DayCell> = calendar::month_grid(year, month)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|cell| DayCell {
+            day: cell.date.day() as i32,
+            iso: cell.date.to_string().into(),
+            in_month: cell.in_month,
+            is_today: cell.date == today,
+        })
+        .collect();
+
+    let title = NaiveDate::from_ymd_opt(year, month, 1)
+        .map(|first| first.format("%B %Y").to_string())
+        .unwrap_or_default();
+
+    ui.set_picker_cells(ModelRc::new(VecModel::from(cells)));
+    ui.set_picker_title(title.into());
 }
 
 fn non_empty(value: &SharedString) -> Option<String> {
@@ -391,6 +487,8 @@ fn echo_to_item(echo: &Echo) -> EchoItem {
         time: echo.created_at.format("%I:%M %p").to_string().into(),
         completed: false,
         priority: SharedString::new(),
+        due: SharedString::new(),
+        due_label: SharedString::new(),
         checklist_done: 0,
         checklist_total: 0,
         mood: echo.mood.map(|v| v as i32).unwrap_or(0),
@@ -409,6 +507,10 @@ fn echo_to_item(echo: &Echo) -> EchoItem {
             item.body = task.description.clone().unwrap_or_default().into();
             item.completed = task.completed;
             item.priority = priority_label(&task.priority).into();
+            if let Some(due) = task.due_date {
+                item.due = due.to_string().into();
+                item.due_label = format_day(due).into();
+            }
             item.checklist_done = done as i32;
             item.checklist_total = total as i32;
         }
