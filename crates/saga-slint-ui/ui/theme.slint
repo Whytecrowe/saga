@@ -1,0 +1,40 @@
+// ============================================================
+// Design tokens. Every component reads Theme.<token>; a future
+// theme switch drives these from an `active` selector.
+// Current palette: Warm & Cozy.
+// ============================================================
+
+export global Theme {
+    // ---- palette (Warm & Cozy) ----
+    out property <color> bg: #fffaf0;
+    out property <color> bg-2: #fff3e0;
+    out property <color> surface: #fffdf8;
+    out property <color> surface-2: #fbf2e2;
+
+    out property <color> ink: #3e2723;
+    out property <color> ink-soft: #7a6a5f;
+    out property <color> ink-faint: #a99c91;
+
+    out property <color> accent: #d98e04;
+    out property <color> accent-2: #f3c969;
+    out property <color> clay: #b5651d;
+    out property <color> line: #efe2cf;
+    out property <color> on-accent: #ffffff;
+
+    // ---- shape ----
+    out property <length> radius: 16px;
+    out property <length> radius-sm: 10px;
+
+    // ---- type ----
+    // Serif face for "soul" content (Seed text, quotes); sans is the
+    // Window default for functional text (tasks, numbers).
+    out property <string> serif: "Constantia";
+
+    // ---- motion ----
+    out property <duration> quick: 200ms;
+    out property <duration> base: 320ms;
+
+    // Overshoot curve: springs slightly past the target, then settles.
+    out property <easing> doey: cubic-bezier(0.34, 1.56, 0.64, 1);
+    out property <easing> smooth: cubic-bezier(0.16, 1, 0.3, 1);
+}

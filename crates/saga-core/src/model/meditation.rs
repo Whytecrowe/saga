@@ -1,7 +1,6 @@
 use super::*;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MeditationData {
@@ -29,15 +28,9 @@ impl MeditationData {
 }
 
 impl Echo {
-    pub fn new_meditation(
-        day: NaiveDate,
-        section_id: Uuid,
-        title: String,
-        duration_minutes: u32,
-    ) -> Self {
+    pub fn new_meditation(day: NaiveDate, title: String, duration_minutes: u32) -> Self {
         Echo::new(
             day,
-            section_id,
             title,
             EchoContent::MeditationEcho(MeditationData::new(duration_minutes)),
         )
@@ -85,13 +78,11 @@ pub fn average_mood_delta(echoes: &[Echo]) -> Option<f32> {
 mod tests {
     use super::*;
     use chrono::{Local, NaiveDate};
-    use uuid::Uuid;
 
     #[test]
     fn test_meditation_echo() {
         let echo = Echo::new(
             Local::now().date_naive(),
-            Uuid::new_v4(),
             "Morning Sit".to_string(),
             EchoContent::MeditationEcho(MeditationData {
                 markdown: Some("Felt calm.".to_string()),
@@ -136,7 +127,6 @@ mod tests {
     fn test_new_meditation_echo() {
         let echo = Echo::new_meditation(
             NaiveDate::from_ymd_opt(2026, 6, 4).unwrap(),
-            Uuid::new_v4(),
             "Evening Sit".to_string(),
             30,
         );
@@ -151,7 +141,6 @@ mod tests {
     fn test_as_meditation_on_non_meditation() {
         let echo = Echo::new(
             Local::now().date_naive(),
-            Uuid::new_v4(),
             "Plain".to_string(),
             EchoContent::PlainEcho(PlainData {
                 markdown: "hi".to_string(),
@@ -162,28 +151,26 @@ mod tests {
 
     #[test]
     fn test_meditation_query_helpers() {
-        let section = Uuid::new_v4();
         let day = NaiveDate::from_ymd_opt(2026, 6, 1).unwrap();
 
-        let mut m1 = Echo::new_meditation(day, section, "Morning".to_string(), 20);
+        let mut m1 = Echo::new_meditation(day, "Morning".to_string(), 20);
         {
             let data = m1.as_meditation_mut().unwrap();
             data.mood_before = Some(4);
             data.mood_after = Some(8);
         }
 
-        let mut m2 = Echo::new_meditation(day, section, "Noon".to_string(), 10);
+        let mut m2 = Echo::new_meditation(day, "Noon".to_string(), 10);
         {
             let data = m2.as_meditation_mut().unwrap();
             data.mood_before = Some(6);
             data.mood_after = Some(4);
         }
 
-        let m3 = Echo::new_meditation(day, section, "No moods".to_string(), 15);
+        let m3 = Echo::new_meditation(day, "No moods".to_string(), 15);
 
         let plain = Echo::new(
             day,
-            section,
             "Note".to_string(),
             EchoContent::PlainEcho(PlainData {
                 markdown: "x".to_string(),
@@ -195,7 +182,7 @@ mod tests {
         assert_eq!(total_meditation_minutes(&all), 45);
         assert_eq!(average_mood_delta(&all), Some(1.0));
 
-        let no_moods = vec![Echo::new_meditation(day, section, "solo".to_string(), 5)];
+        let no_moods = vec![Echo::new_meditation(day, "solo".to_string(), 5)];
         assert_eq!(average_mood_delta(&no_moods), None);
     }
 }

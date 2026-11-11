@@ -61,25 +61,18 @@ pub struct WorkoutTemplate {
 }
 
 impl Echo {
-    pub fn new_workout(day: NaiveDate, section_id: Uuid, title: String) -> Self {
-        Echo::new(
-            day,
-            section_id,
-            title,
-            EchoContent::WorkoutEcho(WorkoutData::new()),
-        )
+    pub fn new_workout(day: NaiveDate, title: String) -> Self {
+        Echo::new(day, title, EchoContent::WorkoutEcho(WorkoutData::new()))
     }
 
     pub fn new_workout_from_template(
         day: NaiveDate,
-        section_id: Uuid,
         title: String,
         template: &WorkoutTemplate,
         history: &[Echo],
     ) -> Self {
         Echo::new(
             day,
-            section_id,
             title,
             EchoContent::WorkoutEcho(WorkoutData::from_template(template, history)),
         )
@@ -299,13 +292,11 @@ impl Default for WorkoutData {
 mod tests {
     use super::*;
     use chrono::{Local, NaiveDate};
-    use uuid::Uuid;
 
     #[test]
     fn test_workout_echo() {
         let echo = Echo::new(
             Local::now().date_naive(),
-            Uuid::new_v4(),
             "Push Day".to_string(),
             EchoContent::WorkoutEcho(WorkoutData {
                 template_id: None,
@@ -407,7 +398,6 @@ mod tests {
     fn test_workout_freeform_new() {
         let echo = Echo::new_workout(
             NaiveDate::from_ymd_opt(2026, 6, 3).unwrap(),
-            Uuid::new_v4(),
             "Freeform lift".to_string(),
         );
         let workout = echo.as_workout().unwrap();
@@ -457,10 +447,8 @@ mod tests {
 
     #[test]
     fn test_from_template_uses_history_ramp() {
-        let section = Uuid::new_v4();
         let mut last = Echo::new_workout(
             NaiveDate::from_ymd_opt(2026, 6, 1).unwrap(),
-            section,
             "Last Push".to_string(),
         );
         {
@@ -513,7 +501,6 @@ mod tests {
     fn test_from_template_history_shorter_than_plan() {
         let mut last = Echo::new_workout(
             NaiveDate::from_ymd_opt(2026, 6, 1).unwrap(),
-            Uuid::new_v4(),
             "Last".to_string(),
         );
         {
@@ -598,7 +585,6 @@ mod tests {
     fn test_as_workout_on_non_workout() {
         let echo = Echo::new(
             Local::now().date_naive(),
-            Uuid::new_v4(),
             "Plain".to_string(),
             EchoContent::PlainEcho(PlainData {
                 markdown: "hi".to_string(),
