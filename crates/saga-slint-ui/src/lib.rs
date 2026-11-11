@@ -94,6 +94,19 @@ pub fn run() {
         });
     }
 
+    // ---- checklist: edit an item's text ----
+    {
+        let model = checklist_model.clone();
+
+        ui.on_checklist_edit(move |index, text| {
+            let i = index as usize;
+            if let Some(mut row) = model.row_data(i) {
+                row.text = text;
+                model.set_row_data(i, row);
+            }
+        });
+    }
+
     // ---- checklist: fill the draft when the composer opens ----
     {
         let model = checklist_model.clone();
@@ -312,7 +325,7 @@ fn apply_checklist(task: &mut TaskData, model: &VecModel<ChecklistDraft>, comple
 }
 
 // Reads Plain + Task Echoes, groups them by day (newest first), and
-// hands the nested model to the timeline.
+// hands the nested model to the timeline and today's rows to Today.
 fn load_timeline(ui: &App, storage: &Storage) {
     let echoes = storage.get_all_echoes().expect("Failed to load echoes");
     let today = Local::now().date_naive();
@@ -324,10 +337,16 @@ fn load_timeline(ui: &App, storage: &Storage) {
     by_day.entry(today).or_default();
 
     let mut days: Vec<DaySignpost> = Vec::new();
+    let mut today_items: Vec<EchoItem> = Vec::new();
     for (day, mut day_echoes) in by_day.into_iter().rev() {
         day_echoes.sort_by(|a, b| a.created_at.cmp(&b.created_at));
 
         let items: Vec<EchoItem> = day_echoes.iter().map(echo_to_item).collect();
+
+        // The Today screen gets its own copy of today's rows.
+        if day == today {
+            today_items = items.clone();
+        }
 
         days.push(DaySignpost {
             iso: day.to_string().into(),
@@ -339,6 +358,7 @@ fn load_timeline(ui: &App, storage: &Storage) {
     }
 
     ui.set_days(ModelRc::new(VecModel::from(days)));
+    ui.set_today_echoes(ModelRc::new(VecModel::from(today_items)));
 }
 
 // Plain + Task are the only types with UI so far.

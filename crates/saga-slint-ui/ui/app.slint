@@ -36,6 +36,85 @@ export struct ChecklistDraft {
     done: bool,
 }
 
+// One Echo as a card: task header, body, and metadata pills.
+// Tap / right-click / long-press come from Card.
+component EchoCard inherits Card {
+    in property <EchoItem> item;
+    callback toggle-complete();
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 9px;
+
+        // task header: completion box + title
+        if root.item.kind == "task" : HorizontalLayout {
+            alignment: start;
+            spacing: 10px;
+            CheckBox {
+                checked: root.item.completed;
+                toggled => { root.toggle-complete(); }
+            }
+            Text {
+                text: root.item.title;
+                color: root.item.completed ? Theme.ink-faint : Theme.ink;
+                font-size: 15px;
+                font-weight: 700;
+                vertical-alignment: center;
+                wrap: word-wrap;
+            }
+        }
+
+        // body: plain markdown, or task description
+        if root.item.body != "" : Text {
+            text: root.item.body;
+            color: root.item.kind == "task" ? Theme.ink-soft : Theme.ink;
+            font-size: root.item.kind == "task" ? 14px : 15px;
+            wrap: word-wrap;
+        }
+
+        // timestamp + metadata pills
+        HorizontalLayout {
+            spacing: 7px;
+            alignment: start;
+            Text {
+                text: root.item.time;
+                color: Theme.ink-faint;
+                font-size: 12px;
+                vertical-alignment: center;
+            }
+            if root.item.kind == "task" && root.item.priority != "" : Rectangle {
+                height: 22px;
+                border-radius: 6px;
+                background: root.item.priority == "critical" ? #f7d6d2
+                    : root.item.priority == "high" ? #fbe3cf
+                    : root.item.priority == "medium" ? #fdf2d6
+                    : #eef3ec;
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    Text {
+                        text: root.item.priority;
+                        font-size: 11px;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                        color: root.item.priority == "critical" ? #c0392b
+                            : root.item.priority == "high" ? #c2671d
+                            : root.item.priority == "medium" ? #b58a18
+                            : #6f8a5f;
+                    }
+                }
+            }
+            if root.item.checklist-total > 0 : Chip {
+                text: "\{root.item.checklist-done}/\{root.item.checklist-total}";
+            }
+            if root.item.has-mood : Chip { text: "mood \{root.item.mood}"; }
+            if root.item.has-energy : Chip { text: "energy \{root.item.energy}"; }
+            if root.item.pinned : Chip { text: "pinned"; }
+            for t in root.item.tags : Chip { text: "#\{t}"; }
+        }
+    }
+}
+
 export component App inherits Window {
     title: "Saga";
     preferred-width: 560px;
@@ -46,11 +125,12 @@ export component App inherits Window {
 
     // Data supplied by Rust.
     in property <[DaySignpost]> days;
+    in property <[EchoItem]> today-echoes;
     in property <string> today-iso;
     in property <string> seed-text;
 
     // Which screen is showing: "today" or "path".
-    property <string> current-view: "path";
+    property <string> current-view: "today";
 
     // Composer state. draft-id == "" means "creating a new Echo".
     property <bool> composer-open: false;
@@ -90,6 +170,7 @@ export component App inherits Window {
     callback checklist-add(string);                         // (text)
     callback checklist-remove(int);                         // (index)
     callback checklist-toggle(int);                         // (index)
+    callback checklist-edit(int, string);                   // (index, text)
     callback begin-task-edit(string);                       // "" = new task; id loads its items
 
     function open-new-plain() {
@@ -210,7 +291,41 @@ export component App inherits Window {
                     clicked => { root.open-seed-editor(); }
                 }
 
-                // TODO: Tasks / Today's Echoes modules go here
+                // TODO: Today's Tasks module goes here.
+                // TODO: module order is fixed here; switch to a Rust-supplied
+                // list of module kinds once the order becomes configurable.
+
+                // Today's Echoes module
+                VerticalLayout {
+                    alignment: start;
+                    spacing: 10px;
+
+                    SectionLabel { text: "TODAY'S ECHOES"; }
+
+                    if root.today-echoes.length == 0 : Text {
+                        text: "Nothing yet — the day is still open.";
+                        color: Theme.ink-faint;
+                        font-family: Theme.serif;
+                        font-size: 16px;
+                        wrap: word-wrap;
+                    }
+
+                    for echo in root.today-echoes : EchoCard {
+                        item: echo;
+                        clicked => {
+                            if (!root.hold-fired) {
+                                root.open-editor(echo);
+                            }
+                        }
+                        delete-requested => { root.ask-delete(echo.id); }
+                        hold-started => {
+                            root.hold-fired = false;
+                            root.hold-id = echo.id;
+                        }
+                        hold-ended => { root.hold-id = ""; }
+                        toggle-complete => { root.toggle-complete(echo.id); }
+                    }
+                }
 
                 AddModuleSlot { }
 
@@ -252,7 +367,8 @@ export component App inherits Window {
                     }
 
                     // cards for this day
-                    for echo in day.echoes : Card {
+                    for echo in day.echoes : EchoCard {
+                        item: echo;
                         clicked => {
                             if (!root.hold-fired) {
                                 root.open-editor(echo);
@@ -264,78 +380,7 @@ export component App inherits Window {
                             root.hold-id = echo.id;
                         }
                         hold-ended => { root.hold-id = ""; }
-
-                        VerticalLayout {
-                            padding: 16px;
-                            spacing: 9px;
-
-                            // task header: completion box + title
-                            if echo.kind == "task" : HorizontalLayout {
-                                alignment: start;
-                                spacing: 10px;
-                                CheckBox {
-                                    checked: echo.completed;
-                                    toggled => { root.toggle-complete(echo.id); }
-                                }
-                                Text {
-                                    text: echo.title;
-                                    color: echo.completed ? Theme.ink-faint : Theme.ink;
-                                    font-size: 15px;
-                                    font-weight: 700;
-                                    vertical-alignment: center;
-                                    wrap: word-wrap;
-                                }
-                            }
-
-                            // body: plain markdown, or task description
-                            if echo.body != "" : Text {
-                                text: echo.body;
-                                color: echo.kind == "task" ? Theme.ink-soft : Theme.ink;
-                                font-size: echo.kind == "task" ? 14px : 15px;
-                                wrap: word-wrap;
-                            }
-
-                            // timestamp + metadata pills
-                            HorizontalLayout {
-                                spacing: 7px;
-                                alignment: start;
-                                Text {
-                                    text: echo.time;
-                                    color: Theme.ink-faint;
-                                    font-size: 12px;
-                                    vertical-alignment: center;
-                                }
-                                if echo.kind == "task" && echo.priority != "" : Rectangle {
-                                    height: 22px;
-                                    border-radius: 6px;
-                                    background: echo.priority == "critical" ? #f7d6d2
-                                        : echo.priority == "high" ? #fbe3cf
-                                        : echo.priority == "medium" ? #fdf2d6
-                                        : #eef3ec;
-                                    HorizontalLayout {
-                                        padding-left: 8px;
-                                        padding-right: 8px;
-                                        Text {
-                                            text: echo.priority;
-                                            font-size: 11px;
-                                            font-weight: 700;
-                                            vertical-alignment: center;
-                                            color: echo.priority == "critical" ? #c0392b
-                                                : echo.priority == "high" ? #c2671d
-                                                : echo.priority == "medium" ? #b58a18
-                                                : #6f8a5f;
-                                        }
-                                    }
-                                }
-                                if echo.checklist-total > 0 : Chip {
-                                    text: "\{echo.checklist-done}/\{echo.checklist-total}";
-                                }
-                                if echo.has-mood : Chip { text: "mood \{echo.mood}"; }
-                                if echo.has-energy : Chip { text: "energy \{echo.energy}"; }
-                                if echo.pinned : Chip { text: "pinned"; }
-                                for t in echo.tags : Chip { text: "#\{t}"; }
-                            }
-                        }
+                        toggle-complete => { root.toggle-complete(echo.id); }
                     }
                 }
 
@@ -523,6 +568,10 @@ export component App inherits Window {
                 easing: Theme.doey;
             }
 
+            // Swallows clicks on the panel's non-interactive areas; without
+            // it they fall through to the backdrop and close the composer.
+            TouchArea { }
+
             VerticalLayout {
                 padding: 20px;
                 spacing: 12px;
@@ -580,13 +629,13 @@ export component App inherits Window {
                                     checked: item.done;
                                     toggled => { root.checklist-toggle(idx); }
                                 }
-                                Text {
+                                // same field as the add-item row, so a click edits in place
+                                TextField {
+                                    flat: true;
+                                    dimmed: item.done;
                                     text: item.text;
-                                    color: item.done ? Theme.ink-faint : Theme.ink;
-                                    font-size: 14px;
-                                    vertical-alignment: center;
                                     horizontal-stretch: 1;
-                                    wrap: word-wrap;
+                                    edited(text) => { root.checklist-edit(idx, text); }
                                 }
                                 // remove item
                                 Rectangle {
@@ -701,6 +750,11 @@ export component App inherits Window {
                         text: "Save Echo";
                         width: 150px;
                         clicked => {
+                            // keep a checklist item that was typed but not entered
+                            if (root.draft-kind == "task" && root.draft-new-item != "") {
+                                root.checklist-add(root.draft-new-item);
+                                root.draft-new-item = "";
+                            }
                             if (root.draft-id == "") {
                                 if (root.draft-kind == "task") {
                                     root.create-task(root.draft-day, root.draft-title, root.draft-body, root.draft-priority, root.draft-completed);
@@ -754,6 +808,9 @@ export component App inherits Window {
                 duration: Theme.base;
                 easing: Theme.doey;
             }
+
+            // keeps panel clicks from reaching the backdrop
+            TouchArea { }
 
             VerticalLayout {
                 padding: 20px;

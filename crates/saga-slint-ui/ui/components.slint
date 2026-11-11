@@ -182,7 +182,8 @@ export component Chip inherits Rectangle {
     }
 }
 
-// Single-line themed text field with a faint placeholder.
+// Themed text field with a faint placeholder. Holds one paragraph
+// (no newlines) that wraps and grows the field as needed.
 // Built on the primitive TextInput so every color is ours (the
 // std-widgets LineEdit ignores Theme and looks blank when unfocused).
 export component TextField inherits Rectangle {
@@ -190,9 +191,13 @@ export component TextField inherits Rectangle {
     in-out property <string> text <=> ti.text;
     // borderless inline variant
     in property <bool> flat;
+    // faint text, e.g. a ticked checklist item
+    in property <bool> dimmed;
     callback accepted();   // Enter / mobile return key
+    callback edited(string);   // every keystroke, with the new text
 
-    height: root.flat ? 36px : 44px;
+    // grows with the text once it wraps past one line
+    height: Math.max(root.flat ? 36px : 44px, ti.preferred-height + (root.flat ? 10px : 22px));
     background: root.flat ? transparent : Theme.bg;
     border-radius: Theme.radius-sm;
     border-width: root.flat ? 0px : 1px;
@@ -215,12 +220,16 @@ export component TextField inherits Rectangle {
         padding-right: root.flat ? 0px : 12px;
         ti := TextInput {
             vertical-alignment: center;
-            color: Theme.ink;
+            color: root.dimmed ? Theme.ink-faint : Theme.ink;
             font-size: 15px;
+            // single-line keeps Enter as "accept" and blocks newlines;
+            // word-wrap only affects display, and stops long text from
+            // widening the layout (a no-wrap input's min width is its text).
             single-line: true;
-            wrap: no-wrap;
+            wrap: word-wrap;
             selection-background-color: Theme.accent-2;
             accepted => { root.accepted(); }
+            edited => { root.edited(self.text); }
         }
     }
 }
