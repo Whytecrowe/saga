@@ -127,6 +127,8 @@ export component App inherits Window {
     in property <[DaySignpost]> days;
     in property <[EchoItem]> today-echoes;
     in property <string> today-iso;
+    in property <string> greeting;
+    in property <string> today-label;
     in property <string> seed-text;
 
     // Which screen is showing: "today" or "path".
@@ -266,18 +268,18 @@ export component App inherits Window {
                 padding-top: 6px;
                 spacing: 16px;
 
-                // greeting + date — TODO: wire to the clock
+                // greeting + date (set once at launch)
                 HorizontalLayout {
                     alignment: space-between;
                     Text {
-                        text: "Good morning";
+                        text: root.greeting;
                         color: Theme.clay;
                         font-size: 22px;
                         font-weight: 600;
                         vertical-alignment: bottom;
                     }
                     Text {
-                        text: "Thursday, June 11";
+                        text: root.today-label;
                         color: Theme.ink;
                         font-family: Theme.serif;
                         font-size: 17px;

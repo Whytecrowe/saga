@@ -1,6 +1,6 @@
 slint::include_modules!();
 
-use chrono::{Local, NaiveDate};
+use chrono::{Local, NaiveDate, Timelike};
 use saga_core::model::{
     ECHO_TYPE_PLAIN, ECHO_TYPE_TASK, Echo, EchoContent, PlainData, Priority, Seed, SeedKind, TaskData,
 };
@@ -15,8 +15,11 @@ pub fn run() {
 
     let ui = App::new().expect("Failed to create UI");
 
-    let today = Local::now().date_naive();
+    let now = Local::now();
+    let today = now.date_naive();
     ui.set_today_iso(today.to_string().into());
+    ui.set_greeting(greeting_for(now.hour()).into());
+    ui.set_today_label(now.format("%A, %B %-d").to_string().into());
 
     let storage = Rc::new(storage);
 
@@ -233,6 +236,16 @@ pub fn run() {
     ui.run().expect("Failed to run UI");
 }
 
+// Takes the hour (0-23) rather than reading the clock, so it can be tested.
+fn greeting_for(hour: u32) -> &'static str {
+    match hour {
+        5..=11 => "Good morning",
+        12..=17 => "Good afternoon",
+        18..=21 => "Good evening",
+        _ => "Hello, night owl",
+    }
+}
+
 // Today's intention = the most recent active Being seed.
 fn current_seed(storage: &Storage, today: NaiveDate) -> Option<Seed> {
     storage
@@ -416,6 +429,24 @@ fn relative_label(day: NaiveDate, today: NaiveDate) -> String {
         -1 => "Tomorrow".to_string(),
         n if n > 1 => format!("{n} days ago"),
         n => format!("in {} days", -n),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn greeting_changes_at_each_boundary() {
+        assert_eq!(greeting_for(4), "Hello, night owl");
+        assert_eq!(greeting_for(5), "Good morning");
+        assert_eq!(greeting_for(11), "Good morning");
+        assert_eq!(greeting_for(12), "Good afternoon");
+        assert_eq!(greeting_for(17), "Good afternoon");
+        assert_eq!(greeting_for(18), "Good evening");
+        assert_eq!(greeting_for(21), "Good evening");
+        assert_eq!(greeting_for(22), "Hello, night owl");
+        assert_eq!(greeting_for(0), "Hello, night owl");
     }
 }
 
