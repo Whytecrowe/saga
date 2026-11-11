@@ -390,6 +390,151 @@ export component SeedScene inherits Rectangle {
     }
 }
 
+// One day in the DatePicker grid.
+export struct DayCell {
+    day: int,
+    iso: string,
+    in-month: bool,
+    is-today: bool,
+}
+
+// Round "previous / next" button in the DatePicker header.
+component RoundTap inherits Rectangle {
+    in property <string> text;
+    callback clicked();
+
+    width: 34px;
+    height: 34px;
+    border-radius: 17px;
+    background: ta.has-hover ? Theme.surface-2 : transparent;
+    animate background { duration: Theme.quick; }
+
+    Text {
+        width: 100%;
+        height: 100%;
+        text: root.text;
+        color: Theme.ink-soft;
+        font-size: 20px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// Month calendar for choosing one date. Holds no date logic: the
+// owner supplies the 42 cells (6 weeks, Monday first) and the title
+// for the month on show, and answers `shift-month`.
+export component DatePicker inherits Rectangle {
+    in property <string> title;
+    in property <[DayCell]> cells;
+    in property <string> selected;       // ISO date, "" = none
+    in property <string> today-iso;
+    in property <string> tomorrow-iso;
+    callback picked(string);             // ISO date
+    callback cleared();
+    callback shift-month(int);           // -1 / +1
+
+    VerticalLayout {
+        padding: 18px;
+        spacing: 10px;
+
+        // month title + navigation
+        HorizontalLayout {
+            RoundTap {
+                text: "‹";
+                clicked => { root.shift-month(-1); }
+            }
+            Text {
+                text: root.title;
+                color: Theme.ink;
+                font-size: 16px;
+                font-weight: 800;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+            RoundTap {
+                text: "›";
+                clicked => { root.shift-month(1); }
+            }
+        }
+
+        // weekday initials
+        HorizontalLayout {
+            for name in ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"] : Text {
+                text: name;
+                color: Theme.ink-faint;
+                font-size: 12px;
+                font-weight: 700;
+                horizontal-alignment: center;
+                horizontal-stretch: 1;
+            }
+        }
+
+        // day grid: cells are placed by index, 7 per row
+        grid := Rectangle {
+            height: 240px;
+            for cell[i] in root.cells : Rectangle {
+                x: Math.mod(i, 7) * grid.width / 7;
+                y: Math.floor(i / 7) * 40px;
+                width: grid.width / 7;
+                height: 40px;
+
+                Rectangle {
+                    width: 34px;
+                    height: 34px;
+                    border-radius: 17px;
+                    background: cell.iso == root.selected ? Theme.accent
+                        : cell-ta.has-hover ? Theme.surface-2
+                        : transparent;
+                    border-width: cell.is-today ? 2px : 0px;
+                    border-color: Theme.accent;
+                    animate background { duration: Theme.quick; }
+                }
+                Text {
+                    width: 100%;
+                    height: 100%;
+                    text: "\{cell.day}";
+                    color: cell.iso == root.selected ? Theme.on-accent
+                        : cell.in-month ? Theme.ink
+                        : Theme.ink-faint;
+                    font-size: 14px;
+                    font-weight: cell.is-today ? 800 : 500;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                cell-ta := TouchArea {
+                    clicked => { root.picked(cell.iso); }
+                }
+            }
+        }
+
+        // shortcuts
+        HorizontalLayout {
+            spacing: 8px;
+            GhostButton {
+                text: "Today";
+                height: 38px;
+                clicked => { root.picked(root.today-iso); }
+            }
+            GhostButton {
+                text: "Tomorrow";
+                height: 38px;
+                clicked => { root.picked(root.tomorrow-iso); }
+            }
+            GhostButton {
+                text: "Clear";
+                height: 38px;
+                clicked => { root.cleared(); }
+            }
+        }
+    }
+}
+
 // Square checkbox. Reports `toggled`; the owner flips the bound state.
 export component CheckBox inherits Rectangle {
     in property <bool> checked;

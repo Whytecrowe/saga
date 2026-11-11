@@ -1,5 +1,6 @@
 import { Theme } from "theme.slint";
-import { Card, PrimaryButton, GhostButton, Chip, CheckBox, TextField, TextArea, SegTab, SectionLabel, AddModuleSlot, SeedScene } from "components.slint";
+import { Card, PrimaryButton, GhostButton, Chip, CheckBox, TextField, TextArea, SegTab, SectionLabel, AddModuleSlot, SeedScene, DatePicker, DayCell } from "components.slint";
+export { DayCell }
 import { ScrollView } from "std-widgets.slint";
 
 // One Echo, flattened for display.
@@ -11,6 +12,8 @@ export struct EchoItem {
     time: string,
     completed: bool,
     priority: string,
+    due: string,          // ISO date, "" = none
+    due-label: string,
     checklist-done: int,
     checklist-total: int,
     mood: int,
@@ -104,6 +107,7 @@ component EchoCard inherits Card {
                     }
                 }
             }
+            if root.item.due-label != "" : Chip { text: "due \{root.item.due-label}"; }
             if root.item.checklist-total > 0 : Chip {
                 text: "\{root.item.checklist-done}/\{root.item.checklist-total}";
             }
@@ -127,8 +131,14 @@ export component App inherits Window {
     in property <[DaySignpost]> days;
     in property <[EchoItem]> today-echoes;
     in property <string> today-iso;
+    in property <string> tomorrow-iso;
     in property <string> greeting;
     in property <string> today-label;
+
+    // Date picker: the month on show, supplied by Rust.
+    in property <string> picker-title;
+    in property <[DayCell]> picker-cells;
+    property <bool> date-picker-open: false;
     in property <string> seed-text;
 
     // Which screen is showing: "today" or "path".
@@ -143,6 +153,7 @@ export component App inherits Window {
     property <string> draft-body: "";
     property <string> draft-priority: "medium";
     property <bool> draft-completed: false;
+    property <string> draft-due: "";    // ISO date, "" = no due date
 
     in property <[ChecklistDraft]> draft-checklist;
     property <string> draft-new-item: "";
@@ -162,8 +173,8 @@ export component App inherits Window {
 
     callback create-plain(string, string);                  // (day, body)
     callback update-plain(string, string);                  // (id, body)
-    callback create-task(string, string, string, string, bool);  // (day, title, desc, priority, completed)
-    callback update-task(string, string, string, string, bool);  // (id, title, desc, priority, completed)
+    callback create-task(string, string, string, string, bool, string);  // (day, title, desc, priority, completed, due)
+    callback update-task(string, string, string, string, bool, string);  // (id, title, desc, priority, completed, due)
     callback toggle-complete(string);                       // (id)
     callback delete-echo(string);                           // (id)
 
@@ -174,6 +185,10 @@ export component App inherits Window {
     callback checklist-toggle(int);                         // (index)
     callback checklist-edit(int, string);                   // (index, text)
     callback begin-task-edit(string);                       // "" = new task; id loads its items
+
+    callback picker-show(string);                           // (ISO date to open on, "" = today)
+    callback picker-shift(int);                             // (months, -1 / +1)
+    pure callback format-day(string) -> string;             // ISO date -> "Thu, Nov 12"
 
     function open-new-plain() {
         root.draft-id = "";
@@ -190,6 +205,7 @@ export component App inherits Window {
         root.draft-body = "";
         root.draft-priority = "medium";
         root.draft-completed = false;
+        root.draft-due = "";
         root.draft-new-item = "";
         root.begin-task-edit("");
         root.composer-open = true;
@@ -201,6 +217,7 @@ export component App inherits Window {
         root.draft-body = item.body;
         root.draft-priority = item.priority == "" ? "medium" : item.priority;
         root.draft-completed = item.completed;
+        root.draft-due = item.due;
         root.draft-new-item = "";
         root.begin-task-edit(item.kind == "task" ? item.id : "");
         root.composer-open = true;
@@ -208,6 +225,10 @@ export component App inherits Window {
     function ask-delete(id: string) {
         root.confirm-id = id;
         root.confirm-open = true;
+    }
+    function open-date-picker() {
+        root.picker-show(root.draft-due);
+        root.date-picker-open = true;
     }
     function open-seed-editor() {
         root.seed-draft = root.seed-text;
@@ -719,6 +740,26 @@ export component App inherits Window {
                             }
                         }
 
+                        // due date (tasks only)
+                        if root.draft-kind == "task" : VerticalLayout {
+                            spacing: 6px;
+                            Text {
+                                text: "Due";
+                                color: Theme.ink-soft;
+                                font-size: 12px;
+                                font-weight: 700;
+                            }
+                            HorizontalLayout {
+                                alignment: start;
+                                GhostButton {
+                                    text: root.draft-due == "" ? "No due date" : root.format-day(root.draft-due);
+                                    width: 190px;
+                                    height: 38px;
+                                    clicked => { root.open-date-picker(); }
+                                }
+                            }
+                        }
+
                         // completion (tasks only) — manual, independent of the checklist
                         if root.draft-kind == "task" : HorizontalLayout {
                             spacing: 10px;
@@ -759,13 +800,13 @@ export component App inherits Window {
                             }
                             if (root.draft-id == "") {
                                 if (root.draft-kind == "task") {
-                                    root.create-task(root.draft-day, root.draft-title, root.draft-body, root.draft-priority, root.draft-completed);
+                                    root.create-task(root.draft-day, root.draft-title, root.draft-body, root.draft-priority, root.draft-completed, root.draft-due);
                                 } else {
                                     root.create-plain(root.draft-day, root.draft-body);
                                 }
                             } else {
                                 if (root.draft-kind == "task") {
-                                    root.update-task(root.draft-id, root.draft-title, root.draft-body, root.draft-priority, root.draft-completed);
+                                    root.update-task(root.draft-id, root.draft-title, root.draft-body, root.draft-priority, root.draft-completed, root.draft-due);
                                 } else {
                                     root.update-plain(root.draft-id, root.draft-body);
                                 }
@@ -774,6 +815,61 @@ export component App inherits Window {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // ---- date picker overlay (sits above the composer) ----
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        visible: date-picker-open;
+
+        Rectangle {
+            background: #3e2723;
+            opacity: date-picker-open ? 0.34 : 0.0;
+            animate opacity { duration: Theme.base; }
+            TouchArea {
+                clicked => { root.date-picker-open = false; }
+            }
+        }
+
+        Rectangle {
+            width: Math.min(340px, parent.width - 32px);
+            height: 408px;
+            x: (parent.width - self.width) / 2;
+            y: date-picker-open ? (parent.height - self.height) / 2 : parent.height;
+            opacity: date-picker-open ? 1.0 : 0.0;
+            background: Theme.surface;
+            border-radius: 20px;
+            border-width: 1px;
+            border-color: Theme.line;
+            drop-shadow-color: #3e272366;
+            drop-shadow-blur: 60px;
+            drop-shadow-offset-y: 22px;
+            animate y, opacity {
+                duration: Theme.base;
+                easing: Theme.doey;
+            }
+
+            // keeps panel clicks from reaching the backdrop
+            TouchArea { }
+
+            DatePicker {
+                title: root.picker-title;
+                cells: root.picker-cells;
+                selected: root.draft-due;
+                today-iso: root.today-iso;
+                tomorrow-iso: root.tomorrow-iso;
+                picked(iso) => {
+                    root.draft-due = iso;
+                    root.date-picker-open = false;
+                }
+                cleared => {
+                    root.draft-due = "";
+                    root.date-picker-open = false;
+                }
+                shift-month(delta) => { root.picker-shift(delta); }
             }
         }
     }
